@@ -6,7 +6,7 @@ interface User {
   id: number;
   name: string;
   email: string;
-  reg_no?: string;
+  registration_no?: string;
   course?: string;
   section?: string;
   verified_profiles: number;
@@ -23,7 +23,7 @@ interface UserTableProps {
 
 export default function UserTable({ users, sortBy, sortOrder, onSort }: UserTableProps) {
   const columns = [
-    { key: 'reg_no', label: 'Registration No', sortable: true },
+    { key: 'registration_no', label: 'Registration No', sortable: true },
     { key: 'name', label: 'Name', sortable: true },
     { key: 'email', label: 'Email', sortable: true },
     { key: 'course', label: 'Course', sortable: true },
@@ -65,7 +65,7 @@ export default function UserTable({ users, sortBy, sortOrder, onSort }: UserTabl
           {users.map((user) => (
             <tr key={user.id}>
               <td className="font-mono text-xs opacity-70">
-                {user.reg_no || '-'}
+                {user.registration_no || '-'}
               </td>
               <td>
                 <div className="font-bold text-white">{user.name}</div>

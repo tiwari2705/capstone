@@ -13,7 +13,7 @@ interface UserProfile {
     name: string;
     email: string;
     registration_no?: string;
-    reg_no?: string;
+    registration_no?: string;
     course?: string;
     section?: string;
     role: string;
@@ -118,7 +118,7 @@ export default function UserProfilePage() {
                <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 py-6 border-t border-white/5">
                   <div>
                     <p className="text-[10px] uppercase font-black tracking-[0.2em] text-muted mb-1">Registration</p>
-                    <p className="text-white font-bold">{user.reg_no || user.registration_no || 'N/A'}</p>
+                    <p className="text-white font-bold">{user.registration_no || user.registration_no || 'N/A'}</p>
                   </div>
                   <div>
                     <p className="text-[10px] uppercase font-black tracking-[0.2em] text-muted mb-1">Program</p>

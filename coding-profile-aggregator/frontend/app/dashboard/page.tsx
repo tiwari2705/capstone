@@ -17,7 +17,7 @@ const PerformanceRadar = dynamic(
 );
 
 interface DashboardData {
-  user: { name: string; email: string; course: string; section: string; reg_no: string };
+  user: { name: string; email: string; course: string; section: string; registration_no: string };
   profiles: Array<{ platform: string; username: string; verified: boolean; profile_url?: string }>;
   stats: Record<string, {
     problems_solved: number; rating: number;
@@ -58,7 +58,7 @@ export default function DashboardPage() {
   };
 
   const handleShare = () => {
-    const identifier = data?.user.email || data?.user.reg_no;
+    const identifier = data?.user.email || data?.user.registration_no;
     navigator.clipboard.writeText(`${window.location.origin}/profile/${identifier}`);
     toast.success('Profile link copied!');
   };
@@ -100,7 +100,7 @@ export default function DashboardPage() {
               <span style={{ opacity: 0.4 }}>•</span>
               <span>Section {data.user.section}</span>
               <span style={{ opacity: 0.4 }}>•</span>
-              <span>{data.user.reg_no}</span>
+              <span>{data.user.registration_no}</span>
             </p>
           </div>
           <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>

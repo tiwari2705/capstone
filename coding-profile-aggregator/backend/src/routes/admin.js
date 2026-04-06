@@ -87,8 +87,8 @@ router.get('/users', async (req, res) => {
     if (search) {
       params.push(`%${search}%`);
       whereConditions.push(`(
-        reg_no ILIKE $${paramCount} OR 
-        reg_no ILIKE $${paramCount} OR 
+        registration_no ILIKE $${paramCount} OR 
+        registration_no ILIKE $${paramCount} OR 
         name ILIKE $${paramCount} OR 
         email ILIKE $${paramCount}
       )`);
@@ -98,7 +98,7 @@ router.get('/users', async (req, res) => {
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
     
     // Valid sort columns
-    const validSorts = ['name', 'email', 'course', 'section', 'created_at', 'reg_no'];
+    const validSorts = ['name', 'email', 'course', 'section', 'created_at', 'registration_no'];
     const sortColumn = validSorts.includes(sort) ? sort : 'name';
     const sortOrder = order === 'desc' ? 'DESC' : 'ASC';
 
@@ -106,7 +106,7 @@ router.get('/users', async (req, res) => {
 
     const query = `
       SELECT 
-        u.id, u.name, u.email, u.reg_no, u.reg_no, u.course, u.section, u.created_at,
+        u.id, u.name, u.email, u.registration_no, u.registration_no, u.course, u.section, u.created_at,
         COUNT(DISTINCT cp.id) as verified_profiles,
         COALESCE(SUM(s.problems_solved), 0) as total_problems,
         COALESCE(SUM(s.score), 0) as total_score
@@ -139,17 +139,17 @@ router.get('/users', async (req, res) => {
 
 /**
  * GET /api/admin/users/:identifier
- * Get specific user by reg_no, email, or ID
+ * Get specific user by registration_no, email, or ID
  */
 router.get('/users/:identifier', async (req, res) => {
   try {
     const { identifier } = req.params;
 
-    // Try to find user by reg_no, reg_no, email, or ID
+    // Try to find user by registration_no, registration_no, email, or ID
     const userResult = await pool.query(`
-      SELECT id, name, email, reg_no, reg_no, course, section, role, created_at
+      SELECT id, name, email, registration_no, registration_no, course, section, role, created_at
       FROM users
-      WHERE reg_no = $1 OR reg_no = $1 OR email = $1 OR id::text = $1
+      WHERE registration_no = $1 OR registration_no = $1 OR email = $1 OR id::text = $1
     `, [identifier]);
 
     if (userResult.rows.length === 0) {
@@ -233,7 +233,7 @@ router.get('/section/:section', async (req, res) => {
 
     const result = await pool.query(`
       SELECT 
-        u.id, u.name, u.email, u.reg_no, u.reg_no, u.course, u.section,
+        u.id, u.name, u.email, u.registration_no, u.registration_no, u.course, u.section,
         COUNT(DISTINCT cp.id) as verified_profiles,
         COALESCE(SUM(s.problems_solved), 0) as total_problems,
         COALESCE(SUM(s.score), 0) as total_score,
@@ -277,7 +277,7 @@ router.get('/course/:course', async (req, res) => {
 
     const result = await pool.query(`
       SELECT 
-        u.id, u.name, u.email, u.reg_no, u.reg_no, u.course, u.section,
+        u.id, u.name, u.email, u.registration_no, u.registration_no, u.course, u.section,
         COUNT(DISTINCT cp.id) as verified_profiles,
         COALESCE(SUM(s.problems_solved), 0) as total_problems,
         COALESCE(SUM(s.score), 0) as total_score,
@@ -358,7 +358,7 @@ router.get('/leaderboard', async (req, res) => {
 
     const query = `
       SELECT 
-        u.id, u.name, u.email, u.reg_no, u.reg_no, u.course, u.section,
+        u.id, u.name, u.email, u.registration_no, u.registration_no, u.course, u.section,
         COALESCE(SUM(s.problems_solved), 0) as total_problems,
         COALESCE(SUM(s.score), 0) as total_score,
         COALESCE(AVG(s.rating), 0) as avg_rating,

@@ -36,7 +36,7 @@ router.get('/', optionalAuth, async (req, res) => {
         u.name,
         u.course,
         u.section,
-        u.reg_no,
+        u.registration_no,
         COALESCE(lc.problems_solved, 0) AS leetcode_problems,
         COALESCE(cf.rating, 0) AS codeforces_rating,
         COALESCE(cf.problems_solved, 0) AS codeforces_problems,

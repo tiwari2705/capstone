@@ -8,7 +8,7 @@ const router = express.Router();
 router.get('/', authenticate, async (req, res) => {
   try {
     const [userResult, profilesResult, statsResult] = await Promise.all([
-      pool.query('SELECT id, name, email, reg_no, course, section FROM users WHERE id = $1', [req.user.id]),
+      pool.query('SELECT id, name, email, registration_no, course, section FROM users WHERE id = $1', [req.user.id]),
       pool.query('SELECT * FROM coding_profiles WHERE user_id = $1', [req.user.id]),
       pool.query('SELECT * FROM stats WHERE user_id = $1', [req.user.id])
     ]);

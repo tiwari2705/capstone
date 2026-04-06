@@ -11,7 +11,7 @@ import { ExternalLink, Share2 } from '@/components/icons';
 import toast from 'react-hot-toast';
 
 interface PublicProfile {
-  user: { name: string; username: string; email: string; course?: string; section?: string; reg_no?: string; };
+  user: { name: string; username: string; email: string; course?: string; section?: string; registration_no?: string; };
   profiles: Array<{ platform: string; username: string; profile_url: string; verified: boolean; }>;
   stats: Record<string, any>;
   totalProblems: number;

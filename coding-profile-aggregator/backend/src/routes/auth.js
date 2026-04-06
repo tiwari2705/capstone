@@ -33,7 +33,7 @@ router.post('/signup', async (req, res) => {
 
 // POST /api/auth/login
 router.post('/login', async (req, res) => {
-  // Allow registration_no, email OR identifier (frontend sends 'email' field containing reg_no or email)
+  // Allow registration_no, email OR identifier (frontend sends 'email' field containing registration_no or email)
   const identifier = req.body.registration_no || req.body.identifier || req.body.email;
   const { password } = req.body;
   
@@ -63,7 +63,7 @@ router.post('/login', async (req, res) => {
 // GET /api/auth/me
 router.get('/me', authenticate, async (req, res) => {
   try {
-    const result = await pool.query('SELECT id, name, username, email, reg_no, course, section, role, created_at FROM users WHERE id = $1', [req.user.id]);
+    const result = await pool.query('SELECT id, name, username, email, registration_no, course, section, role, created_at FROM users WHERE id = $1', [req.user.id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
     res.json(result.rows[0]);
   } catch (err) {

@@ -14,7 +14,7 @@ interface PublicProfile {
     email: string;
     course?: string;
     section?: string;
-    reg_no?: string;
+    registration_no?: string;
   };
   profiles: Array<{
     platform: string;

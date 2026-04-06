@@ -8,7 +8,7 @@ interface LeaderboardEntry {
   id: number;
   name: string;
   email: string;
-  reg_no?: string;
+  registration_no?: string;
   course?: string;
   section?: string;
   total_problems: number;
@@ -202,7 +202,7 @@ export default function AdminLeaderboardPage() {
                           </div>
                         </td>
                         <td className="hidden sm:table-cell font-mono text-xs opacity-70">
-                          {entry.reg_no || '-'}
+                          {entry.registration_no || '-'}
                         </td>
                         <td className="hidden md:table-cell">
                           <span className="badge badge-info">{entry.course || '-'}</span>

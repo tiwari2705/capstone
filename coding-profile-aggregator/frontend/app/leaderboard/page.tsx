@@ -11,7 +11,7 @@ type LeaderboardEntry = {
   name:                string;
   course:              string;
   section:             string;
-  reg_no:              string;
+  registration_no:              string;
   leetcode_problems:   number;
   codeforces_rating:   number;
   codeforces_problems: number;
@@ -204,7 +204,7 @@ export default function LeaderboardPage() {
                             {entry.name}
                             {isMe && <span style={{ marginLeft: '0.4rem', fontSize: '0.75rem', color: 'var(--accent-purple)' }}>(you)</span>}
                           </p>
-                          <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{entry.reg_no}</p>
+                          <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{entry.registration_no}</p>
                         </td>
                         <td>
                           <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{entry.course || '—'}</p>

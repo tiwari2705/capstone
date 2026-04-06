@@ -19,11 +19,11 @@ router.get('/:identifier', async (req, res) => {
   try {
     const { identifier } = req.params;
     
-    // Find user by username, email, or reg_no
+    // Find user by username, email, or registration_no
     const userResult = await pool.query(
-      `SELECT id, name, email, reg_no, course, section, username, created_at 
+      `SELECT id, name, email, registration_no, course, section, username, created_at 
        FROM users 
-       WHERE username = $1 OR email = $1 OR reg_no = $1`,
+       WHERE username = $1 OR email = $1 OR registration_no = $1`,
       [identifier]
     );
 
@@ -59,7 +59,7 @@ router.get('/:identifier', async (req, res) => {
         name: user.name,
         course: user.course,
         section: user.section,
-        reg_no: user.reg_no,
+        registration_no: user.registration_no,
         username: user.username,
         joined: user.created_at
       },

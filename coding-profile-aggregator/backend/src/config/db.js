@@ -68,14 +68,14 @@ const initDB = async () => {
             ALTER TABLE users ADD COLUMN registration_no VARCHAR(100) UNIQUE;
           END IF;
 
-          -- Safe Data Migration: Copy reg_no to registration_no ONLY if unique
-          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='reg_no') THEN
+          -- Safe Data Migration: Copy registration_no to registration_no ONLY if unique
+          IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='registration_no') THEN
             UPDATE users u 
-            SET registration_no = reg_no 
+            SET registration_no = registration_no 
             WHERE u.registration_no IS NULL 
-            AND u.reg_no IS NOT NULL
-            AND NOT EXISTS (SELECT 1 FROM users u2 WHERE u2.registration_no = u.reg_no)
-            AND u.id IN (SELECT MIN(id) FROM users u3 GROUP BY u3.reg_no);
+            AND u.registration_no IS NOT NULL
+            AND NOT EXISTS (SELECT 1 FROM users u2 WHERE u2.registration_no = u.registration_no)
+            AND u.id IN (SELECT MIN(id) FROM users u3 GROUP BY u3.registration_no);
           END IF;
           
           -- Other columns

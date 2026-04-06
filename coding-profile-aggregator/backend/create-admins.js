@@ -43,7 +43,7 @@ async function createAdmins() {
       console.log('✅ Admin 1 updated (existing user):');
     } else {
       await client.query(
-        `INSERT INTO users (name, email, password, role, reg_no, course, section) 
+        `INSERT INTO users (name, email, password, role, registration_no, course, section) 
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
         ['Admin User 1', admin1Email, admin1Hash, 'admin', 'ADMIN001', 'Administration', 'A']
       );
@@ -62,7 +62,7 @@ async function createAdmins() {
       console.log('✅ Admin 2 updated (existing user):');
     } else {
       await client.query(
-        `INSERT INTO users (name, email, password, role, reg_no, course, section) 
+        `INSERT INTO users (name, email, password, role, registration_no, course, section) 
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
         ['Admin User 2', admin2Email, admin2Hash, 'admin', 'ADMIN002', 'Administration', 'B']
       );
@@ -75,13 +75,13 @@ async function createAdmins() {
     // Verify admins were created
     console.log('Verifying admin users...');
     const admins = await client.query(
-      "SELECT id, name, email, role, reg_no FROM users WHERE role = 'admin' ORDER BY id"
+      "SELECT id, name, email, role, registration_no FROM users WHERE role = 'admin' ORDER BY id"
     );
     console.log(`\n✅ Found ${admins.rows.length} admin user(s) in database:`);
     admins.rows.forEach((admin, index) => {
       console.log(`\n${index + 1}. ${admin.name}`);
       console.log(`   Email: ${admin.email}`);
-      console.log(`   Reg No: ${admin.reg_no || 'N/A'}`);
+      console.log(`   Reg No: ${admin.registration_no || 'N/A'}`);
       console.log(`   Role: ${admin.role}`);
     });
 

@@ -11,7 +11,7 @@ interface User {
   name: string;
   email: string;
   registration_no?: string;
-  reg_no?: string;
+  registration_no?: string;
   course?: string;
   section?: string;
   verified_profiles: number;
