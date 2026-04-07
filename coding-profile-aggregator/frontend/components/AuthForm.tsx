@@ -3,11 +3,27 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
+import { AxiosError } from 'axios';
 import api from '@/lib/api';
 import { setToken } from '@/lib/auth';
 import { Code2, Eye, EyeOff } from '@/components/icons';
 
 interface AuthFormProps { mode: 'login' | 'signup'; }
+
+const COURSES = [
+  'B.Tech CSE',
+  'B.Tech IT',
+  'B.Tech ECE',
+  'B.Tech EEE',
+  'B.Tech Mechanical',
+  'B.Tech Civil',
+  'B.Tech Chemical',
+  'BCA',
+  'MCA',
+  'M.Tech CSE',
+  'M.Tech IT',
+  'Other'
+];
 
 export default function AuthForm({ mode }: AuthFormProps) {
   const router   = useRouter();
@@ -25,17 +41,39 @@ export default function AuthForm({ mode }: AuthFormProps) {
         ? { registration_no: form.registration_no, password: form.password } 
         : form;
       const res      = await api.post(endpoint, payload);
+      
+      // Handle signup with email verification
+      if (mode === 'signup' && res.data.requiresVerification) {
+        toast.success('Account created! Please check your email for OTP.');
+        router.push(`/verify-email?email=${encodeURIComponent(res.data.email)}`);
+        return;
+      }
+      
+      // Handle login with unverified email
+      if (mode === 'login' && res.data.requiresVerification) {
+        toast.error('Please verify your email first');
+        router.push(`/verify-email?email=${encodeURIComponent(res.data.email)}`);
+        return;
+      }
+      
       setToken(res.data.token);
       const userRole = res.data.user?.role || 'user';
       toast.success(userRole === 'admin'
         ? (mode === 'login' ? 'Welcome back, Admin!' : 'Admin account created!')
         : (mode === 'login' ? 'Welcome back!'        : 'Account created!'));
       router.push(userRole === 'admin' ? '/admin' : '/dashboard');
-    } catch (err: any) {
-      if (!err.response) {
+    } catch (err) {
+      const error = err as AxiosError<any>;
+      if (!error.response) {
         toast.error('Cannot connect to server. Please ensure the backend is running.');
       } else {
-        toast.error(err.response.data?.error || 'Authentication failed');
+        const errorData = err.response.data;
+        if (errorData?.requiresVerification) {
+          toast.error(errorData.error);
+          router.push(`/verify-email?email=${encodeURIComponent(errorData.email)}`);
+        } else {
+          toast.error(errorData?.error || 'Authentication failed');
+        }
       }
     } finally {
       setLoading(false);
@@ -114,7 +152,22 @@ export default function AuthForm({ mode }: AuthFormProps) {
 
             {mode === 'signup' && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                {field('course',  'Course',  'text', 'B.Tech CSE')}
+                {/* Course Dropdown */}
+                <div>
+                  <label className="form-label">Course</label>
+                  <select
+                    value={form.course}
+                    onChange={e => setForm(p => ({ ...p, course: e.target.value }))}
+                    className="form-input"
+                    required
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <option value="" disabled>Select Course</option>
+                    {COURSES.map(course => (
+                      <option key={course} value={course}>{course}</option>
+                    ))}
+                  </select>
+                </div>
                 {field('section', 'Section', 'text', 'A')}
               </div>
             )}
@@ -126,6 +179,14 @@ export default function AuthForm({ mode }: AuthFormProps) {
               {mode === 'login' ? 'Sign In' : 'Create Account'}
             </button>
           </form>
+
+          {mode === 'login' && (
+            <div style={{ textAlign: 'center', marginTop: '0.5rem' }}>
+              <Link href="/forgot-password" style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textDecoration: 'none' }}>
+                Forgot password?
+              </Link>
+            </div>
+          )}
         </div>
 
         <p style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: '1.5rem', fontSize: '0.9rem' }}>

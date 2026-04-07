@@ -51,6 +51,17 @@ const initDB = async () => {
         last_updated TIMESTAMP DEFAULT NOW(),
         UNIQUE(user_id, platform)
       );
+
+      CREATE TABLE IF NOT EXISTS otp_codes (
+        id SERIAL PRIMARY KEY,
+        email VARCHAR(255) NOT NULL,
+        registration_no VARCHAR(100),
+        otp VARCHAR(6) NOT NULL,
+        purpose VARCHAR(50) NOT NULL,
+        expires_at TIMESTAMP NOT NULL,
+        used BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
     `);
 
     // 2. Safe Migrations
@@ -66,6 +77,11 @@ const initDB = async () => {
           -- Add registration_no
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='registration_no') THEN
             ALTER TABLE users ADD COLUMN registration_no VARCHAR(100) UNIQUE;
+          END IF;
+
+          -- Add email_verified
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='email_verified') THEN
+            ALTER TABLE users ADD COLUMN email_verified BOOLEAN DEFAULT FALSE;
           END IF;
 
           -- Safe Data Migration: Copy registration_no to registration_no ONLY if unique
@@ -101,29 +117,30 @@ const initDB = async () => {
     }
 
     // 3. Superadmin Seeding
-    try {
-      const hashedX = await bcrypt.hash('Admin@789', 12);
+    // try {
+    //   const hashedX = await bcrypt.hash('Admin@789', 12);
       
-      const admins = [
-        { name: 'Root Admin X', user: 'admin_x', email: 'admin_x@codequest.app', pass: hashedX, reg: 'ADMIN_X_01' },
-        { name: 'Root Admin Y', user: 'admin_y', email: 'admin_y@codequest.app', pass: hashedX, reg: 'ADMIN_Y_02' }
-      ];
+    //   const admins = [
+    //     { name: 'Root Admin X', user: 'admin_x', email: 'admin_x@codequest.app', pass: hashedX, reg: 'ADMIN_X_01' },
+    //     { name: 'Root Admin Y', user: 'admin_y', email: 'admin_y@codequest.app', pass: hashedX, reg: 'ADMIN_Y_02' }
+    //   ];
 
-      for (const admin of admins) {
-        await client.query(
-          `INSERT INTO users (name, username, email, password, registration_no, role) 
-           VALUES ($1, $2, $3, $4, $5, 'superadmin') 
-           ON CONFLICT (email) DO UPDATE SET 
-             registration_no = EXCLUDED.registration_no,
-             password = EXCLUDED.password,
-             role = 'superadmin'`,
-          [admin.name, admin.user, admin.email, admin.pass, admin.reg]
-        );
-      }
-      console.log('Synchronized 2 fresh superadmin accounts (X and Y).');
-    } catch (seedErr) {
-      console.warn('Seeding warning (non-fatal):', seedErr.message);
-    }
+    //   for (const admin of admins) {
+    //     await client.query(
+    //       `INSERT INTO users (name, username, email, password, registration_no, role, email_verified) 
+    //        VALUES ($1, $2, $3, $4, $5, 'admin', TRUE) 
+    //        ON CONFLICT (email) DO UPDATE SET 
+    //          registration_no = EXCLUDED.registration_no,
+    //          password = EXCLUDED.password,
+    //          role = 'admin',
+    //          email_verified = TRUE`,
+    //       [admin.name, admin.user, admin.email, admin.pass, admin.reg]
+    //     );
+    //   }
+    //   console.log('Synchronized 2 fresh admin accounts (X and Y).');
+    // } catch (seedErr) {
+    //   console.warn('Seeding warning (non-fatal):', seedErr.message);
+    // }
 
     console.log('Database initialized successfully.');
   } finally {
