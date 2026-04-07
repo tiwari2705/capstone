@@ -198,6 +198,10 @@ export const ArrowUpDown = (p: IconProps) => Icon(p,
   </>
 );
 
+export const Info = (p: IconProps) => Icon(p,
+  <><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></>
+);
+
 export const Code = (p: IconProps) => Icon(p,
   <><polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" /></>
 );
@@ -208,4 +212,8 @@ export const ShieldAlert = (p: IconProps) => Icon(p,
     <path d="M12 8v4" />
     <path d="M12 16h.01" />
   </>
+);
+
+export const TrendingUp = (p: IconProps) => Icon(p,
+  <><polyline points="23 6 13.5 15.5 8.5 10.5 1 18" /><polyline points="17 6 23 6 23 12" /></>
 );

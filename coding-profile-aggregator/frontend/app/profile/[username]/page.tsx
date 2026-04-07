@@ -1,36 +1,47 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import axios from 'axios';
-import PlatformCard from '@/components/PlatformCard';
-import StatCard from '@/components/StatCard';
-import { ExternalLink, Share2, Code2, Trophy, CheckCircle } from '@/components/icons';
+import { Share2, RefreshCw, Info } from '@/components/icons';
 import toast from 'react-hot-toast';
+import api from '@/lib/api';
+import AwardsSection from '@/components/AwardsSection';
+import ProblemsSolvedSection from '@/components/ProblemsSolvedSection';
+import DSATopicAnalysis from '@/components/DSATopicAnalysis';
+import TotalContestsCard from '@/components/TotalContestsCard';
+import CompetitiveProgrammingCard from '@/components/CompetitiveProgrammingCard';
+import ContestRankingsCard from '@/components/ContestRankingsCard';
+import ActivityHeatmap from '@/components/ActivityHeatmap';
+import LanguageStatsSection from '@/components/LanguageStatsSection';
 
-interface PublicProfile {
-  user: {
-    name: string;
-    username: string;
-    email: string;
-    course?: string;
-    section?: string;
-    registration_no?: string;
-  };
-  profiles: Array<{
-    platform: string;
-    username: string;
-    profile_url: string;
-    verified: boolean;
+interface PublicDashboardData {
+  user: { name: string; email: string; course: string; section: string; registration_no: string; username: string };
+  profiles: Array<{ platform: string; username: string; verified: boolean; profile_url?: string }>;
+  stats: Record<string, {
+    problems_solved: number; rating: number;
+    easy_solved: number; medium_solved: number; hard_solved: number;
+    submissions: number; last_updated: string;
+    active_days?: number; badges?: number; rank?: string;
+    extra_data?: any;
   }>;
-  stats: Record<string, any>;
   totalProblems: number;
-  score: string;
+  totalActiveDays: number;
+  totalSubmissions: number;
+  totalBadges: number;
+  totalContests?: number;
+  maxStreak: number;
+  currentStreak: number;
+  heatmapData: Array<{ date: string; count: number }>;
+  allBadges?: Array<{ name: string; icon: string; platform: string; date?: string }>;
+  contests?: Array<{ platform: string; count: number; rating: number; rank?: string; ranking?: number }>;
+  contestRankings?: Record<string, { current: number; max: number; rank?: string | number }>;
+  dsaTopics?: Array<{ name: string; count: number; color: string }>;
+  score: number;
 }
 
 export default function PublicProfilePage() {
   const params = useParams();
   const username = params.username as string;
-  const [profile, setProfile] = useState<PublicProfile | null>(null);
+  const [data, setData] = useState<PublicDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -41,10 +52,8 @@ export default function PublicProfilePage() {
   const fetchProfile = async () => {
     setLoading(true);
     try {
-      const { data } = await axios.get(
-        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api'}/profile/${username}`
-      );
-      setProfile(data);
+      const res = await api.get(`/profile/${username}`);
+      setData(res.data);
       setError('');
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to load profile');
@@ -55,133 +64,276 @@ export default function PublicProfilePage() {
 
   const handleShare = () => {
     navigator.clipboard.writeText(window.location.href);
-    toast.success('Profile link copied to clipboard!');
+    toast.success('Profile link copied!');
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'var(--bg-primary)' }}>
-        <div className="text-center">
-          <div className="spinner mx-auto mb-4"></div>
-          <p style={{ color: 'var(--text-muted)' }}>Loading profile...</p>
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
+        <div className="spinner" />
       </div>
     );
   }
 
-  if (error || !profile) {
+  if (error || !data) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'var(--bg-primary)' }}>
-        <div className="text-center">
-          <h1 style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--text-primary)', marginBottom: '1rem' }}>Profile Not Found</h1>
-          <p style={{ color: 'var(--text-muted)', marginBottom: '1.5rem' }}>{error || 'This profile does not exist'}</p>
-          <a href="/" className="btn btn-primary">Go to Home</a>
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', flexDirection: 'column', gap: '1rem' }}>
+        <h1 style={{ fontSize: '2rem', fontWeight: 'bold', color: 'white' }}>Profile Not Found</h1>
+        <p style={{ color: 'var(--text-muted)' }}>{error || 'This profile does not exist'}</p>
+        <a href="/" className="btn btn-primary">Go to Home</a>
       </div>
     );
   }
+
+  // Use backend-calculated values
+  const totalSubmissions = data.totalSubmissions || 0;
+  const totalActiveDays = data.totalActiveDays || 0;
+  const maxStreak = data.maxStreak || 0;
+  const currentStreak = data.currentStreak || 0;
+  const totalContests = data.totalContests || 0;
+
+  // Check what data is available
+  const hasContestData = totalContests > 0 && data.contests && data.contests.length > 0;
+  const hasContestRankings = data.contestRankings && Object.keys(data.contestRankings).length > 0;
+  const hasDSATopics = data.dsaTopics && data.dsaTopics.length > 0;
+  const hasCompetitiveProgramming = (data.stats.codechef?.problems_solved || 0) + (data.stats.codeforces?.problems_solved || 0) > 0;
+  const hasHeatmapData = data.heatmapData && data.heatmapData.length > 0;
+  
+  // Use badges from all platforms
+  const allBadges = data.allBadges || [];
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-primary)', paddingBottom: '4rem' }}>
-      {/* ── Profile Header ── */}
-      <div className="page-header">
-        <div className="container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1.5rem', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
-            <div style={{ width: 64, height: 64, borderRadius: '20px', background: 'var(--grad-brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'var(--shadow-glow)' }}>
-              <span style={{ color: '#fff', fontWeight: 900, fontSize: '1.6rem' }}>
-                {profile.user.name.charAt(0).toUpperCase()}
-              </span>
+    <div style={{ 
+      minHeight: '100vh', 
+      width: '100%',
+      background: 'linear-gradient(135deg, #0B0F19 0%, #1a1f2e 100%)',
+      paddingBottom: '4rem'
+    }}>
+      {/* Header */}
+      <div style={{ 
+        background: 'rgba(255, 255, 255, 0.02)',
+        borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+        padding: '2rem 0',
+        marginBottom: '2rem'
+      }}>
+        <div style={{ 
+          maxWidth: '1600px', 
+          margin: '0 auto', 
+          padding: '0 2rem',
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'space-between', 
+          gap: '2rem', 
+          flexWrap: 'wrap' 
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+            <div style={{ 
+              width: 80, 
+              height: 80, 
+              borderRadius: '20px', 
+              background: 'var(--grad-brand)', 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              fontSize: '2.5rem',
+              fontWeight: 900,
+              color: 'white',
+              boxShadow: '0 8px 32px rgba(255, 107, 0, 0.3)'
+            }}>
+              {data.user.name.charAt(0).toUpperCase()}
             </div>
             <div>
-              <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#fff', margin: 0 }}>{profile.user.name}</h1>
-              <p style={{ color: 'var(--text-muted)', margin: 0, fontWeight: 500 }}>@{profile.user.username}</p>
+              <h1 style={{ 
+                fontSize: '2.5rem', 
+                fontWeight: 900, 
+                color: '#fff', 
+                marginBottom: '0.5rem',
+                letterSpacing: '-0.02em'
+              }}>
+                {data.user.name}
+              </h1>
+              <p style={{ 
+                color: 'var(--text-muted)', 
+                fontSize: '1rem', 
+                display: 'flex', 
+                gap: '0.75rem', 
+                flexWrap: 'wrap',
+                alignItems: 'center'
+              }}>
+                <span style={{ color: '#ff6b00', fontWeight: 600 }}>@{data.user.username}</span>
+                <span style={{ opacity: 0.3 }}>•</span>
+                <span>{data.user.course}</span>
+                <span style={{ opacity: 0.3 }}>•</span>
+                <span>Section {data.user.section}</span>
+              </p>
             </div>
           </div>
-          <button onClick={handleShare} className="btn btn-primary shadow-glow">
-            <Share2 size={18} />
-            <span>Share Profile</span>
+          <button 
+            onClick={handleShare} 
+            className="btn btn-primary"
+            style={{ 
+              padding: '0.75rem 2rem',
+              fontSize: '1rem',
+              fontWeight: 600
+            }}
+          >
+            <Share2 size={18} /> Share Profile
           </button>
         </div>
       </div>
 
-      <div className="container" style={{ paddingTop: '2.5rem' }}>
-        
-        {/* Core Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mb-12">
-          <StatCard 
-            title="Total Problems Solved" 
-            value={profile.totalProblems} 
-            icon={<Code2 size={24} style={{ color: 'var(--accent-purple)' }} />} 
-            color="purple"
-          />
-          <StatCard 
-            title="CodeRank Score" 
-            value={parseFloat(profile.score).toFixed(1)} 
-            icon={<Trophy size={24} style={{ color: 'var(--accent-blue)' }} />} 
-            color="blue"
-          />
-          <StatCard 
-            title="Total Active Days" 
-            value={profile.stats.leetcode?.active_days || 0} 
-            icon={<CheckCircle size={24} style={{ color: 'var(--accent-green)' }} />} 
-            color="green"
-            subtitle="LeetCode Consistency"
-          />
-        </div>
+      {/* Body */}
+      <div style={{ 
+        maxWidth: '1600px', 
+        margin: '0 auto', 
+        padding: '0 2rem',
+        width: '100%'
+      }}>
 
-        {/* Platform Breakdown */}
-        <div style={{ marginBottom: '2.5rem' }}>
-          <h2 className="section-title">
-            <span className="section-title-bar" />
-            Coding Portfolio
-          </h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
-            {profile.profiles.map((prof) => {
-              const platformStats = profile.stats[prof.platform] || {};
-              return (
-                <PlatformCard 
-                  key={prof.platform} 
-                  platform={prof.platform} 
-                  username={prof.username} 
-                  verified={prof.verified} 
-                  stats={platformStats} 
-                  profileUrl={prof.profile_url}
-                />
-              );
-            })}
+        {/* Top Stats Row */}
+        <div style={{ 
+          display: 'grid', 
+          gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', 
+          gap: '1.5rem', 
+          marginBottom: '2.5rem' 
+        }}>
+          {/* Total Questions */}
+          <div className="glass-card" style={{ 
+            padding: '2rem', 
+            position: 'relative', 
+            overflow: 'hidden',
+            background: 'rgba(255, 255, 255, 0.03)',
+            border: '1px solid rgba(255, 255, 255, 0.08)'
+          }}>
+            <div style={{ 
+              position: 'absolute', 
+              top: 0, 
+              right: 0, 
+              width: '150px', 
+              height: '150px',
+              background: 'radial-gradient(circle, rgba(255, 107, 0, 0.1) 0%, transparent 70%)',
+              pointerEvents: 'none'
+            }} />
+            <div style={{ position: 'absolute', top: 16, right: 16 }} title="All platforms combined">
+              <Info size={18} style={{ color: 'var(--text-muted)', cursor: 'help' }} />
+            </div>
+            <div style={{ 
+              fontSize: '0.9rem', 
+              color: 'var(--text-muted)', 
+              marginBottom: '1rem', 
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em'
+            }}>
+              Total Questions
+            </div>
+            <div style={{ 
+              fontSize: '4rem', 
+              fontWeight: 900, 
+              color: 'white', 
+              lineHeight: 1,
+              background: 'linear-gradient(135deg, #fff 0%, #ff6b00 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent'
+            }}>
+              {data.totalProblems}
+            </div>
+          </div>
+
+          {/* Total Active Days */}
+          <div className="glass-card" style={{ 
+            padding: '2rem', 
+            position: 'relative', 
+            overflow: 'hidden',
+            background: 'rgba(255, 255, 255, 0.03)',
+            border: '1px solid rgba(255, 255, 255, 0.08)'
+          }}>
+            <div style={{ 
+              position: 'absolute', 
+              top: 0, 
+              right: 0, 
+              width: '150px', 
+              height: '150px',
+              background: 'radial-gradient(circle, rgba(57, 211, 83, 0.1) 0%, transparent 70%)',
+              pointerEvents: 'none'
+            }} />
+            <div style={{ position: 'absolute', top: 16, right: 16 }} title="All platforms combined">
+              <Info size={18} style={{ color: 'var(--text-muted)', cursor: 'help' }} />
+            </div>
+            <div style={{ 
+              fontSize: '0.9rem', 
+              color: 'var(--text-muted)', 
+              marginBottom: '1rem', 
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em'
+            }}>
+              Total Active Days
+            </div>
+            <div style={{ 
+              fontSize: '4rem', 
+              fontWeight: 900, 
+              color: 'white', 
+              lineHeight: 1,
+              background: 'linear-gradient(135deg, #fff 0%, #39d353 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent'
+            }}>
+              {totalActiveDays}
+            </div>
           </div>
         </div>
 
-        {/* Identity Information */}
-        <div className="glass-card p-6 border border-white/5 bg-surface/10">
-          <h2 className="section-title mb-6">
-            <span className="section-title-bar" />
-            Verification Details
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div className="space-y-4">
-               <div>
-                 <p className="text-[10px] uppercase font-black tracking-widest text-muted mb-1">Academic Unit</p>
-                 <p className="text-white font-bold text-lg">{profile.user.course || 'Bachelor of Technology'}</p>
-               </div>
-               <div>
-                 <p className="text-[10px] uppercase font-black tracking-widest text-muted mb-1">Section Assignment</p>
-                 <p className="text-white font-bold text-lg">Unit {profile.user.section || 'N/A'}</p>
-               </div>
-            </div>
-            <div className="verify-box">
-               <p className="text-sm font-medium text-[var(--accent-yellow)] mb-3 flex items-center gap-2">
-                 <CheckCircle size={16} /> Identity Verified by CodeRank
-               </p>
-               <div className="code-block">
-                 HASH: {btoa(profile.user.username + profile.totalProblems).slice(0, 16)}...
-               </div>
-            </div>
+        {/* Activity Heatmap - Only show if data exists */}
+        {hasHeatmapData && (
+          <div style={{ marginBottom: '2.5rem' }}>
+            <ActivityHeatmap 
+              data={data.heatmapData}
+              totalSubmissions={totalSubmissions}
+              maxStreak={maxStreak}
+              currentStreak={currentStreak}
+            />
           </div>
+        )}
+
+        {/* Main Content Grid */}
+        <div style={{ 
+          display: 'grid', 
+          gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', 
+          gap: '2rem',
+          marginBottom: '2rem'
+        }}>
+          {/* Total Contests - Only show if data exists */}
+          {hasContestData && (
+            <TotalContestsCard totalContests={totalContests} contests={data.contests!} />
+          )}
+
+          {/* Awards */}
+          <AwardsSection badges={allBadges} />
+
+          {/* Languages */}
+          <LanguageStatsSection stats={data.stats} />
+
+          {/* Problems Solved */}
+          <ProblemsSolvedSection stats={data.stats} />
+
+          {/* Competitive Programming - Only show if data exists */}
+          {hasCompetitiveProgramming && (
+            <CompetitiveProgrammingCard stats={data.stats} />
+          )}
+
+          {/* DSA Topic Analysis - Only show if data exists */}
+          {hasDSATopics && (
+            <DSATopicAnalysis topics={data.dsaTopics} />
+          )}
+
+          {/* Contest Rankings - Only show if data exists */}
+          {hasContestRankings && (
+            <ContestRankingsCard contestRankings={data.contestRankings!} />
+          )}
         </div>
 
       </div>
     </div>
-
   );
 }

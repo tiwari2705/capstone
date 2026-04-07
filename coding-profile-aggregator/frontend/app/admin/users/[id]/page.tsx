@@ -12,7 +12,7 @@ interface UserProfile {
     id: number;
     name: string;
     email: string;
-    registration_no?: string;
+    username?: string;
     registration_no?: string;
     course?: string;
     section?: string;
@@ -86,6 +86,13 @@ export default function UserProfilePage() {
           <span className="text-sm font-semibold">Back to Fleet</span>
         </button>
         <div className="flex items-center gap-3">
+            <button
+              onClick={() => router.push(`/profile/${user.username || user.registration_no || user.email}`)}
+              className="btn btn-primary"
+            >
+              <ExternalLink size={16} />
+              View Dashboard
+            </button>
             <span className="text-[10px] uppercase font-black tracking-widest text-muted">Viewing Mode</span>
             <span className="badge badge-purple">Student Audit</span>
         </div>
@@ -118,7 +125,11 @@ export default function UserProfilePage() {
                <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 py-6 border-t border-white/5">
                   <div>
                     <p className="text-[10px] uppercase font-black tracking-[0.2em] text-muted mb-1">Registration</p>
-                    <p className="text-white font-bold">{user.registration_no || user.registration_no || 'N/A'}</p>
+                    <p className="text-white font-bold">{user.registration_no || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase font-black tracking-[0.2em] text-muted mb-1">Username</p>
+                    <p className="text-white font-bold">@{user.username || 'N/A'}</p>
                   </div>
                   <div>
                     <p className="text-[10px] uppercase font-black tracking-[0.2em] text-muted mb-1">Program</p>
@@ -127,10 +138,6 @@ export default function UserProfilePage() {
                   <div>
                     <p className="text-[10px] uppercase font-black tracking-[0.2em] text-muted mb-1">Section</p>
                     <p className="text-white font-bold">{user.section || 'General'}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase font-black tracking-[0.2em] text-muted mb-1">Active Since</p>
-                    <p className="text-white font-bold">{new Date(user.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric', day: '2-digit' })}</p>
                   </div>
                </div>
             </div>
