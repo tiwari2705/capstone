@@ -67,6 +67,7 @@ const fetchLeetCodeStats = async (username) => {
           activeYears
           streak
           totalActiveDays
+          submissionCalendar
         }
         submitStats {
           acSubmissionNum {
@@ -74,8 +75,40 @@ const fetchLeetCodeStats = async (username) => {
             count
           }
         }
+        languageProblemCount {
+          languageName
+          problemsSolved
+        }
         profile {
           ranking
+          reputation
+        }
+        badges {
+          id
+          displayName
+          icon
+          creationDate
+        }
+        upcomingBadges {
+          name
+          icon
+        }
+        tagProblemCounts {
+          advanced {
+            tagName
+            tagSlug
+            problemsSolved
+          }
+          intermediate {
+            tagName
+            tagSlug
+            problemsSolved
+          }
+          fundamental {
+            tagName
+            tagSlug
+            problemsSolved
+          }
         }
       }
     }
@@ -99,6 +132,47 @@ const fetchLeetCodeStats = async (username) => {
   const hard      = find('Hard');
   const ranking   = matchedUser.profile?.ranking || 0;
   const activeDays = matchedUser.userCalendar?.totalActiveDays || 0;
+  const streak = matchedUser.userCalendar?.streak || 0;
+
+  // Parse submission calendar (timestamp -> count)
+  const submissionCalendar = matchedUser.userCalendar?.submissionCalendar || '{}';
+  const dailySubmissions = JSON.parse(submissionCalendar);
+
+  // Extract badges
+  const badges = matchedUser.badges || [];
+  const badgeCount = badges.length;
+
+  // Extract language statistics
+  const languageStats = matchedUser.languageProblemCount || [];
+  const languageData = languageStats
+    .filter(lang => lang.problemsSolved > 0)
+    .sort((a, b) => b.problemsSolved - a.problemsSolved)
+    .map(lang => ({
+      name: lang.languageName,
+      count: lang.problemsSolved
+    }));
+
+  // Extract topic-wise data
+  const topicData = [];
+  const tagCounts = matchedUser.tagProblemCounts || {};
+  
+  ['advanced', 'intermediate', 'fundamental'].forEach(level => {
+    if (tagCounts[level]) {
+      tagCounts[level].forEach(tag => {
+        if (tag.problemsSolved > 0) {
+          topicData.push({
+            name: tag.tagName,
+            slug: tag.tagSlug,
+            count: tag.problemsSolved,
+            level: level
+          });
+        }
+      });
+    }
+  });
+
+  // Sort by count descending
+  topicData.sort((a, b) => b.count - a.count);
 
   return {
     problems_solved: total,
@@ -109,7 +183,16 @@ const fetchLeetCodeStats = async (username) => {
     submissions:     total,
     score:           total,
     active_days:     activeDays,
-    extra: { ranking, activeDays },
+    badges:          badgeCount,
+    extra: { 
+      ranking, 
+      activeDays, 
+      streak,
+      badgeList: badges.map(b => ({ name: b.displayName, icon: b.icon, date: b.creationDate })),
+      topicData: topicData,
+      languageData: languageData,
+      dailySubmissions: dailySubmissions
+    },
   };
 };
 
@@ -156,12 +239,34 @@ const fetchCodeforcesStats = async (username) => {
   console.log(`[CF] user.info response status: ${infoRes.data.status}`);
 
   let rating = 0, maxRating = 0, rank = '';
+  const badges = [];
 
   if (infoRes.data.status === 'OK' && infoRes.data.result?.length > 0) {
     const user = infoRes.data.result[0];
     rating    = user.rating    || 0;
     maxRating = user.maxRating || 0;
     rank      = user.rank      || '';
+    
+    // Codeforces badges based on rank
+    if (rank) {
+      badges.push({
+        name: `${rank} Rank`,
+        icon: getRankIcon(rank),
+        platform: 'codeforces',
+        date: null
+      });
+    }
+    
+    // Add contribution badge if positive
+    if (user.contribution > 0) {
+      badges.push({
+        name: `Contributor (+${user.contribution})`,
+        icon: '🌟',
+        platform: 'codeforces',
+        date: null
+      });
+    }
+    
     console.log(`[CF] Rating: ${rating}, Max: ${maxRating}, Rank: ${rank}`);
   } else if (infoRes.data.status === 'FAILED') {
     throw new Error(`Codeforces API error: ${infoRes.data.comment || 'User not found'}`);
@@ -212,12 +317,29 @@ const fetchCodeforcesStats = async (username) => {
     hard_solved:   0,
     submissions,
     score: rating * 0.1,  // score contribution = rating * 0.1
-    extra: { maxRating, rank },
+    badges: badges.length,
+    extra: { maxRating, rank, badgeList: badges },
   };
 
   console.log(`[CF] Final result:`, result);
   return result;
 };
+
+function getRankIcon(rank) {
+  const rankIcons = {
+    'newbie': '🌱',
+    'pupil': '📗',
+    'specialist': '📘',
+    'expert': '💙',
+    'candidate master': '💜',
+    'master': '🟠',
+    'international master': '🟠',
+    'grandmaster': '🔴',
+    'international grandmaster': '🔴',
+    'legendary grandmaster': '🏆'
+  };
+  return rankIcons[rank.toLowerCase()] || '⭐';
+}
 
 // ─── GeeksforGeeks ───────────────────────────────────────────────────────────
 
@@ -263,6 +385,14 @@ const fetchGFGStats = async (username) => {
 
       const safeInt = (v) => parseInt(v) || 0;
 
+      // GFG badges based on score milestones
+      const badges = [];
+      if (score >= 1000) badges.push({ name: '1000+ Score', icon: '🏆', platform: 'gfg' });
+      if (score >= 500) badges.push({ name: '500+ Score', icon: '🥇', platform: 'gfg' });
+      if (score >= 100) badges.push({ name: '100+ Score', icon: '🥈', platform: 'gfg' });
+      if (d.currentStreak >= 30) badges.push({ name: '30 Day Streak', icon: '🔥', platform: 'gfg' });
+      if (d.currentStreak >= 7) badges.push({ name: '7 Day Streak', icon: '⚡', platform: 'gfg' });
+
       const result = {
         problems_solved,
         rating: 0,
@@ -271,12 +401,14 @@ const fetchGFGStats = async (username) => {
         hard_solved: safeInt(d.Hard),
         submissions: problems_solved,
         score,
+        badges: badges.length,
         extra: {
           codingScore: score,
           currentStreak: d.currentStreak || 0,
           maxStreak: d.maxStreak || 0,
           monthlyScore: d.monthlyScore || 0,
           source: 'community-api',
+          badgeList: badges
         },
       };
 
@@ -300,6 +432,12 @@ const fetchGFGStats = async (username) => {
     const problems_solved = scrapedData.problemsSolved || 0;
     const score = scrapedData.codingScore || problems_solved;
 
+    // GFG badges based on score
+    const badges = [];
+    if (score >= 1000) badges.push({ name: '1000+ Score', icon: '🏆', platform: 'gfg' });
+    if (score >= 500) badges.push({ name: '500+ Score', icon: '🥇', platform: 'gfg' });
+    if (score >= 100) badges.push({ name: '100+ Score', icon: '🥈', platform: 'gfg' });
+
     const result = {
       problems_solved,
       rating: 0,
@@ -308,10 +446,12 @@ const fetchGFGStats = async (username) => {
       hard_solved: 0,
       submissions: problems_solved,
       score,
+      badges: badges.length,
       extra: {
         codingScore: score,
         scrapedAt: scrapedData.scrapedAt,
         source: 'puppeteer',
+        badgeList: badges
       },
     };
 
@@ -351,6 +491,17 @@ const fetchHackerRankStats = async (username) => {
       throw new Error(`Profile not found or stats not available for "${username}"`);
     }
 
+    // HackerRank badges based on stars/certificates
+    const badges = [];
+    const badgeCount = scrapedData.badges || 0;
+    
+    if (badgeCount >= 10) badges.push({ name: '10+ Badges', icon: '🏆', platform: 'hackerrank' });
+    if (badgeCount >= 5) badges.push({ name: '5+ Badges', icon: '🥇', platform: 'hackerrank' });
+    if (badgeCount >= 1) badges.push({ name: 'Certified', icon: '⭐', platform: 'hackerrank' });
+    
+    if (scrapedData.problemsSolved >= 100) badges.push({ name: '100+ Problems', icon: '💯', platform: 'hackerrank' });
+    if (scrapedData.problemsSolved >= 50) badges.push({ name: '50+ Problems', icon: '🎯', platform: 'hackerrank' });
+
     const result = {
       problems_solved: scrapedData.problemsSolved || 0,
       rating: 0,
@@ -359,12 +510,13 @@ const fetchHackerRankStats = async (username) => {
       hard_solved: 0,
       submissions: scrapedData.problemsSolved || 0,
       score: scrapedData.problemsSolved || 0,
-      badges: scrapedData.badges || 0,
+      badges: badges.length,
       rank: scrapedData.rank || '',
       extra: {
-        badges: scrapedData.badges || 0,
+        badges: badgeCount,
         scrapedAt: scrapedData.scrapedAt,
         source: 'puppeteer',
+        badgeList: badges
       },
     };
 
@@ -409,6 +561,7 @@ const fetchAndStoreStats = async (userId, platform, username) => {
     throw fetchErr;
   }
 
+  // Store main stats
   await pool.query(
     `INSERT INTO stats
        (user_id, platform, problems_solved, rating, easy_solved, medium_solved,
@@ -442,6 +595,26 @@ const fetchAndStoreStats = async (userId, platform, username) => {
       JSON.stringify(data.extra || {}),
     ]
   );
+
+  // Store daily submissions (LeetCode only for now)
+  if (platform === 'leetcode' && data.extra?.dailySubmissions) {
+    console.log(`[Stats] Storing daily submissions for ${platform}/@${username}...`);
+    const dailySubs = data.extra.dailySubmissions;
+    
+    for (const [timestamp, count] of Object.entries(dailySubs)) {
+      const date = new Date(parseInt(timestamp) * 1000);
+      const dateStr = date.toISOString().split('T')[0];
+      
+      await pool.query(
+        `INSERT INTO daily_submissions (user_id, submission_date, platform, count)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (user_id, submission_date, platform) 
+         DO UPDATE SET count = EXCLUDED.count`,
+        [userId, dateStr, platform, parseInt(count)]
+      );
+    }
+    console.log(`[Stats] ✓ Stored ${Object.keys(dailySubs).length} days of submissions`);
+  }
 
   console.log(`[Stats] ✓ ${platform}/@${username}: ${data.problems_solved} problems, score=${data.score}`);
   return data;

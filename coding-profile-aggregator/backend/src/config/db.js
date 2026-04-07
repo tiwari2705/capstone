@@ -62,6 +62,28 @@ const initDB = async () => {
         used BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT NOW()
       );
+
+      CREATE TABLE IF NOT EXISTS daily_submissions (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        submission_date DATE NOT NULL,
+        platform VARCHAR(50) NOT NULL,
+        count INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(user_id, submission_date, platform)
+      );
+
+      CREATE TABLE IF NOT EXISTS contest_history (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        platform VARCHAR(50) NOT NULL,
+        contest_name VARCHAR(255),
+        contest_date TIMESTAMP,
+        rank INTEGER,
+        rating_change INTEGER,
+        new_rating INTEGER,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
     `);
 
     // 2. Safe Migrations
