@@ -84,6 +84,11 @@ const initDB = async () => {
             ALTER TABLE users ADD COLUMN email_verified BOOLEAN DEFAULT FALSE;
           END IF;
 
+          -- Add year_of_passing
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='year_of_passing') THEN
+            ALTER TABLE users ADD COLUMN year_of_passing INTEGER;
+          END IF;
+
           -- Safe Data Migration: Copy registration_no to registration_no ONLY if unique
           IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='registration_no') THEN
             UPDATE users u 

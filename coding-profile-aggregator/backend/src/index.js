@@ -34,26 +34,26 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
 });
 
-// Graceful shutdown
-process.on('SIGINT', async () => {
-  console.log('\n[Server] Shutting down gracefully...');
-  await closeGFGBrowser();
-  await closeHRBrowser();
-  process.exit(0);
-});
-
-process.on('SIGTERM', async () => {
-  console.log('\n[Server] Shutting down gracefully...');
-  await closeGFGBrowser();
-  await closeHRBrowser();
-  process.exit(0);
-});
-
 initDB().then(() => {
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     startCronJobs();
   });
+
+  const shutdown = async (signal) => {
+    console.log(`\n[Server] ${signal} received — shutting down gracefully...`);
+    server.close(async () => {
+      await closeGFGBrowser();
+      await closeHRBrowser();
+      process.exit(0);
+    });
+    // Force-exit after 5s if server.close() hangs
+    setTimeout(() => process.exit(0), 5000).unref();
+  };
+
+  process.on('SIGINT',  () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+
 }).catch(err => {
   console.error('Failed to initialize DB:', err);
   process.exit(1);

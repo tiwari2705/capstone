@@ -29,7 +29,15 @@ export default function AuthForm({ mode }: AuthFormProps) {
   const router   = useRouter();
   const [loading,  setLoading]  = useState(false);
   const [showPass, setShowPass] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', password: '', registration_no: '', course: '', section: '' });
+  const [form, setForm] = useState({ 
+    name: '', 
+    email: '', 
+    password: '', 
+    registration_no: '', 
+    course: '', 
+    section: '',
+    year_of_passing: ''
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -151,25 +159,44 @@ export default function AuthForm({ mode }: AuthFormProps) {
             </div>
 
             {mode === 'signup' && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                {/* Course Dropdown */}
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  {/* Course Dropdown */}
+                  <div>
+                    <label className="form-label">Course</label>
+                    <select
+                      value={form.course}
+                      onChange={e => setForm(p => ({ ...p, course: e.target.value }))}
+                      className="form-input"
+                      required
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <option value="" disabled>Select Course</option>
+                      {COURSES.map(course => (
+                        <option key={course} value={course}>{course}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {field('section', 'Section', 'text', 'A')}
+                </div>
+
+                {/* Year of Passing */}
                 <div>
-                  <label className="form-label">Course</label>
+                  <label className="form-label">Year of Passing</label>
                   <select
-                    value={form.course}
-                    onChange={e => setForm(p => ({ ...p, course: e.target.value }))}
+                    value={form.year_of_passing}
+                    onChange={e => setForm(p => ({ ...p, year_of_passing: e.target.value }))}
                     className="form-input"
                     required
                     style={{ cursor: 'pointer' }}
                   >
-                    <option value="" disabled>Select Course</option>
-                    {COURSES.map(course => (
-                      <option key={course} value={course}>{course}</option>
+                    <option value="" disabled>Select Year</option>
+                    {Array.from({ length: 10 }, (_, i) => new Date().getFullYear() + i).map(year => (
+                      <option key={year} value={year}>{year}</option>
                     ))}
                   </select>
                 </div>
-                {field('section', 'Section', 'text', 'A')}
-              </div>
+              </>
             )}
 
             <button type="submit" disabled={loading} className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', padding: '0.8rem', fontSize: '0.95rem', marginTop: '0.5rem' }}>

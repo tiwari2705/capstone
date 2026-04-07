@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import api from '@/lib/api';
 import StatsCard from '@/components/admin/StatsCard';
-import { User, CheckCircle, Code, BarChart3 } from '@/components/icons';
+import { User, CheckCircle, Code, BarChart3, RefreshCw } from '@/components/icons';
 import toast from 'react-hot-toast';
 
 interface AdminStats {
@@ -27,6 +27,7 @@ interface AdminStats {
 export default function AdminDashboard() {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
     fetchStats();
@@ -41,6 +42,18 @@ export default function AdminDashboard() {
       toast.error('Failed to load statistics');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSync = async () => {
+    try {
+      setSyncing(true);
+      await api.post('/admin/sync-stats');
+      toast.success('Stats sync started! Refresh in a minute to see updated data.');
+      setTimeout(() => { fetchStats(); setSyncing(false); }, 30000);
+    } catch (err: any) {
+      toast.error('Failed to trigger sync: ' + (err.response?.data?.error || err.message));
+      setSyncing(false);
     }
   };
 
@@ -75,6 +88,15 @@ export default function AdminDashboard() {
             <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: '#fff', marginBottom: '0.25rem' }}>Admin Dashboard</h1>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Overview of all users and platform statistics</p>
           </div>
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className="btn btn-primary"
+            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', opacity: syncing ? 0.7 : 1 }}
+          >
+            <RefreshCw size={16} style={{ animation: syncing ? 'spin 1s linear infinite' : 'none' }} />
+            {syncing ? 'Syncing...' : 'Sync Stats Now'}
+          </button>
         </div>
       </div>
 

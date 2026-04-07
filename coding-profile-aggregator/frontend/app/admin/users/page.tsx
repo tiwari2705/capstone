@@ -11,9 +11,9 @@ interface User {
   name: string;
   email: string;
   registration_no?: string;
-  registration_no?: string;
   course?: string;
   section?: string;
+  year_of_passing?: number;
   verified_profiles: number;
   total_problems: number;
   total_score: number;
@@ -25,19 +25,24 @@ export default function UsersPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCourse, setSelectedCourse] = useState('');
   const [selectedSection, setSelectedSection] = useState('');
+  const [selectedYear, setSelectedYear] = useState('');
   const [sortBy, setSortBy] = useState('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [total, setTotal] = useState(0);
   const [limit] = useState(50);
   const [offset, setOffset] = useState(0);
 
-  // Extract unique courses and sections
+  // Extract unique courses, sections, and years
   const courses = Array.from(new Set(users.map(u => u.course).filter(Boolean))) as string[];
   const sections = Array.from(new Set(users.map(u => u.section).filter(Boolean))) as string[];
+  const years = Array.from(new Set(users.map(u => u.year_of_passing).filter(Boolean))).sort((a, b) => (b as number) - (a as number)) as number[];
+  
+  // Ensure arrays are never undefined
+  const safeYears = years || [];
 
   useEffect(() => {
     fetchUsers();
-  }, [searchQuery, selectedCourse, selectedSection, sortBy, sortOrder, offset]);
+  }, [searchQuery, selectedCourse, selectedSection, selectedYear, sortBy, sortOrder, offset]);
 
   const fetchUsers = async () => {
     try {
@@ -52,6 +57,7 @@ export default function UsersPage() {
       if (searchQuery) params.search = searchQuery;
       if (selectedCourse) params.course = selectedCourse;
       if (selectedSection) params.section = selectedSection;
+      if (selectedYear) params.year_of_passing = selectedYear;
 
       const { data } = await api.get('/admin/users', { params });
       setUsers(data.users);
@@ -82,6 +88,7 @@ export default function UsersPage() {
   const handleReset = () => {
     setSelectedCourse('');
     setSelectedSection('');
+    setSelectedYear('');
     setSearchQuery('');
     setOffset(0);
   };
@@ -116,10 +123,13 @@ export default function UsersPage() {
         <FilterBar
           courses={courses}
           sections={sections}
+          years={safeYears}
           selectedCourse={selectedCourse}
           selectedSection={selectedSection}
+          selectedYear={selectedYear}
           onCourseChange={setSelectedCourse}
           onSectionChange={setSelectedSection}
+          onYearChange={setSelectedYear}
           onReset={handleReset}
         />
       </div>

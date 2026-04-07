@@ -12,7 +12,7 @@ const requireAdmin = (req, res, next) => {
 
   // Check if user has admin role
   if (req.user.role !== 'admin' && req.user.role !== 'superadmin') {
-    return res.status(403).json({ 
+    return res.status(403).json({
       error: 'Admin access required',
       message: 'You do not have permission to access this resource'
     });
@@ -28,8 +28,8 @@ const requireSuperAdmin = (req, res, next) => {
   }
 
   if (req.user.role !== 'superadmin') {
-    return res.status(403).json({ 
-      error: 'Super Admin access required',
+    return res.status(403).json({
+      error: 'admin access required',
       message: 'Only superadmins can perform this action'
     });
   }

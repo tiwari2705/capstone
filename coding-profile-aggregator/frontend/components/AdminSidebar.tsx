@@ -55,7 +55,7 @@ export default function AdminSidebar({ admin }: AdminSidebarProps) {
         <p className="font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{admin.name || admin.username}</p>
         <div className="mt-2 text-center">
           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${admin.role === 'superadmin' ? 'bg-purple-500/20 text-purple-400 border-purple-500/30' : 'bg-orange-500/20 text-orange-500 border-orange-500/30'}`}>
-            {admin.role === 'superadmin' ? 'Super Admin' : 'Administrator'}
+            {admin.role === 'superadmin' ? 'admin' : 'Administrator'}
           </span>
         </div>
       </div>

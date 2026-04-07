@@ -9,7 +9,7 @@ const router = express.Router();
 
 // POST /api/auth/signup
 router.post('/signup', async (req, res) => {
-  const { name, email, password, registration_no, course, section } = req.body;
+  const { name, email, password, registration_no, course, section, year_of_passing } = req.body;
   if (!name || !email || !password || !registration_no) {
     return res.status(400).json({ error: 'Name, email, password, and Registration Number are required' });
   }
@@ -35,8 +35,8 @@ router.post('/signup', async (req, res) => {
     // Create user account (unverified)
     const hashed = await bcrypt.hash(password, 12);
     const result = await pool.query(
-      'INSERT INTO users (name, email, password, registration_no, course, section, role, email_verified) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, name, email, registration_no, course, section, role, email_verified',
-      [name, email, hashed, registration_no, course, section, 'user', false]
+      'INSERT INTO users (name, email, password, registration_no, course, section, year_of_passing, role, email_verified) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id, name, email, registration_no, course, section, year_of_passing, role, email_verified',
+      [name, email, hashed, registration_no, course, section, year_of_passing, 'user', false]
     );
     
     res.status(201).json({ 
