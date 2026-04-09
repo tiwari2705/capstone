@@ -11,6 +11,8 @@ import CompetitiveProgrammingCard from '@/components/CompetitiveProgrammingCard'
 import ContestRankingsCard from '@/components/ContestRankingsCard';
 import ActivityHeatmap from '@/components/ActivityHeatmap';
 import LanguageStatsSection from '@/components/LanguageStatsSection';
+import Tooltip from '@/components/Tooltip';
+import RankingCard from '@/components/RankingCard';
 
 interface DashboardData {
   user: { name: string; email: string; course: string; section: string; registration_no: string };
@@ -35,6 +37,11 @@ interface DashboardData {
   contestRankings?: Record<string, { current: number; max: number; rank?: string | number }>;
   dsaTopics?: Array<{ name: string; count: number; color: string }>;
   recentContests?: Array<any>;
+  rankings?: {
+    overall: { rank: number; total: number };
+    course: { rank: number; total: number; name: string };
+    section: { rank: number; total: number; name: string };
+  };
   score: number;
 }
 
@@ -185,6 +192,13 @@ export default function DashboardPage() {
         width: '100%'
       }}>
 
+        {/* Rankings Card - Only show if rankings data exists */}
+        {data.rankings && (
+          <div style={{ marginBottom: '2.5rem' }}>
+            <RankingCard rankings={data.rankings} />
+          </div>
+        )}
+
         {/* Top Stats Row */}
         <div style={{ 
           display: 'grid', 
@@ -209,8 +223,11 @@ export default function DashboardPage() {
               background: 'radial-gradient(circle, rgba(255, 107, 0, 0.1) 0%, transparent 70%)',
               pointerEvents: 'none'
             }} />
-            <div style={{ position: 'absolute', top: 16, right: 16 }} title="All platforms combined">
-              <Info size={18} style={{ color: 'var(--text-muted)', cursor: 'help' }} />
+            <div style={{ position: 'absolute', top: 16, right: 16 }}>
+              <Tooltip 
+                content="Total Questions are calculated using data from all platforms. Note that for AtCoder, no data is available." 
+                size={18}
+              />
             </div>
             <div style={{ 
               fontSize: '0.9rem', 
@@ -252,8 +269,11 @@ export default function DashboardPage() {
               background: 'radial-gradient(circle, rgba(57, 211, 83, 0.1) 0%, transparent 70%)',
               pointerEvents: 'none'
             }} />
-            <div style={{ position: 'absolute', top: 16, right: 16 }} title="All platforms combined">
-              <Info size={18} style={{ color: 'var(--text-muted)', cursor: 'help' }} />
+            <div style={{ position: 'absolute', top: 16, right: 16 }}>
+              <Tooltip 
+                content="Total Active Days shows the cumulative number of days you've been active across all coding platforms" 
+                size={18}
+              />
             </div>
             <div style={{ 
               fontSize: '0.9rem', 

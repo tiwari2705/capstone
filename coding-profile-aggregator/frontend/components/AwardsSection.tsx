@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { Award, ChevronDown } from '@/components/icons';
+import { Award, ChevronDown, Info } from '@/components/icons';
 
 interface Badge {
   id: string;
@@ -86,6 +86,12 @@ export default function AwardsSection({ badges }: AwardsSectionProps) {
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <Award size={20} style={{ color: 'var(--accent-yellow)' }} />
           <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'white' }}>Awards</h3>
+          <div 
+            style={{ cursor: 'help' }}
+            title="Badges and achievements earned from coding platforms (LeetCode, Codeforces, GeeksforGeeks, HackerRank)"
+          >
+            <Info size={14} style={{ color: 'var(--text-muted)' }} />
+          </div>
         </div>
         <span style={{ 
           fontSize: '0.85rem', 

@@ -41,6 +41,12 @@ export default function DSATopicAnalysis({ topics }: DSATopicAnalysisProps) {
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <BarChart3 size={20} style={{ color: 'var(--accent-blue)' }} />
           <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'white' }}>DSA Topic Analysis</h3>
+          <div 
+            style={{ cursor: 'help' }}
+            title="Data Structures and Algorithms topics based on LeetCode problems solved. Shows your strongest areas."
+          >
+            <Info size={14} style={{ color: 'var(--text-muted)' }} />
+          </div>
         </div>
         <div title="Based on LeetCode problems">
           <Info size={16} style={{ color: 'var(--text-muted)', cursor: 'help' }} />

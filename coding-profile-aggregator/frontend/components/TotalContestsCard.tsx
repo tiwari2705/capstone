@@ -1,5 +1,5 @@
 'use client';
-import { Trophy } from '@/components/icons';
+import { Trophy, Info } from '@/components/icons';
 
 interface Contest {
   platform: string;
@@ -34,6 +34,12 @@ export default function TotalContestsCard({ totalContests, contests }: TotalCont
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}>
         <Trophy size={20} style={{ color: 'var(--accent-yellow)' }} />
         <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'white' }}>Total Contests</h3>
+        <div 
+          style={{ cursor: 'help' }}
+          title="Total number of contests participated across all platforms (LeetCode, Codeforces, CodeChef)"
+        >
+          <Info size={14} style={{ color: 'var(--text-muted)' }} />
+        </div>
       </div>
 
       <div style={{ fontSize: '3rem', fontWeight: 800, color: 'white', lineHeight: 1, marginBottom: '1.5rem' }}>

@@ -1,5 +1,5 @@
 'use client';
-import { Code2 } from '@/components/icons';
+import { Code2, Info } from '@/components/icons';
 
 interface CompetitiveProgrammingProps {
   stats: Record<string, {
@@ -18,6 +18,12 @@ export default function CompetitiveProgrammingCard({ stats }: CompetitiveProgram
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}>
         <Code2 size={20} style={{ color: 'var(--accent-green)' }} />
         <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'white' }}>Competitive Programming</h3>
+        <div 
+          style={{ cursor: 'help' }}
+          title="Problems solved on competitive programming platforms (CodeChef and Codeforces)"
+        >
+          <Info size={14} style={{ color: 'var(--text-muted)' }} />
+        </div>
       </div>
 
       <div style={{ fontSize: '3rem', fontWeight: 800, color: 'white', lineHeight: 1, marginBottom: '1.5rem' }}>

@@ -105,17 +105,22 @@ router.get('/:identifier', async (req, res) => {
     if (statsMap.leetcode) {
       const lcExtra = statsMap.leetcode.extra_data || {};
       const lcContests = contestHistory.filter(c => c.platform === 'leetcode');
+      const contestRating = lcExtra.contestRating || statsMap.leetcode.rating || 0;
+      const maxContestRating = lcExtra.maxContestRating || contestRating;
+      const contestsAttended = lcExtra.contestsAttended || lcContests.length || 0;
+      
       contests.push({
         platform: 'leetcode',
-        count: lcContests.length || 0,
-        rating: lcExtra.contestRating || 0,
-        ranking: lcExtra.ranking || 0
+        count: contestsAttended,
+        rating: contestRating,
+        ranking: lcExtra.globalRanking || 0
       });
-      if (lcExtra.contestRating || lcContests.length > 0) {
+      
+      if (contestRating > 0 || contestsAttended > 0) {
         contestRankings.leetcode = {
-          current: lcExtra.contestRating || 0,
-          max: lcExtra.contestRating || 0,
-          rank: lcExtra.ranking || 0
+          current: contestRating,
+          max: maxContestRating,
+          rank: lcExtra.globalRanking || 0
         };
       }
     }
@@ -183,6 +188,9 @@ router.get('/:identifier', async (req, res) => {
       allBadges.push(...statsMap.hackerrank.extra_data.badgeList);
     }
 
+    // Calculate rankings
+    const rankings = await calculateRankings(user.id, user.course, user.section, totalProblems);
+
     // Build response
     const response = { 
       user: {
@@ -203,6 +211,7 @@ router.get('/:identifier', async (req, res) => {
       currentStreak,
       heatmapData,
       allBadges,
+      rankings,
       score 
     };
 
@@ -337,6 +346,91 @@ function generateDSATopics(statsMap) {
     { name: 'Stack', count: Math.floor(total * 0.02), color: '#3b82f6' },
     { name: 'Tree', count: Math.floor(total * 0.01), color: '#3b82f6' },
   ].filter(t => t.count > 0);
+}
+
+async function calculateRankings(userId, userCourse, userSection, userTotalProblems) {
+  try {
+    // Overall ranking
+    const overallRankResult = await pool.query(`
+      SELECT COUNT(*) + 1 as rank
+      FROM (
+        SELECT u.id, COALESCE(SUM(s.problems_solved), 0) as total_problems
+        FROM users u
+        LEFT JOIN stats s ON u.id = s.user_id
+        WHERE u.role = 'user'
+        GROUP BY u.id
+        HAVING COALESCE(SUM(s.problems_solved), 0) > $1
+      ) as ranked_users
+    `, [userTotalProblems]);
+
+    const overallTotalResult = await pool.query(`
+      SELECT COUNT(*) as total
+      FROM users
+      WHERE role = 'user'
+    `);
+
+    // Course-wise ranking
+    const courseRankResult = await pool.query(`
+      SELECT COUNT(*) + 1 as rank
+      FROM (
+        SELECT u.id, COALESCE(SUM(s.problems_solved), 0) as total_problems
+        FROM users u
+        LEFT JOIN stats s ON u.id = s.user_id
+        WHERE u.role = 'user' AND u.course = $1
+        GROUP BY u.id
+        HAVING COALESCE(SUM(s.problems_solved), 0) > $2
+      ) as ranked_users
+    `, [userCourse, userTotalProblems]);
+
+    const courseTotalResult = await pool.query(`
+      SELECT COUNT(*) as total
+      FROM users
+      WHERE role = 'user' AND course = $1
+    `, [userCourse]);
+
+    // Section-wise ranking
+    const sectionRankResult = await pool.query(`
+      SELECT COUNT(*) + 1 as rank
+      FROM (
+        SELECT u.id, COALESCE(SUM(s.problems_solved), 0) as total_problems
+        FROM users u
+        LEFT JOIN stats s ON u.id = s.user_id
+        WHERE u.role = 'user' AND u.section = $1
+        GROUP BY u.id
+        HAVING COALESCE(SUM(s.problems_solved), 0) > $2
+      ) as ranked_users
+    `, [userSection, userTotalProblems]);
+
+    const sectionTotalResult = await pool.query(`
+      SELECT COUNT(*) as total
+      FROM users
+      WHERE role = 'user' AND section = $1
+    `, [userSection]);
+
+    return {
+      overall: {
+        rank: parseInt(overallRankResult.rows[0].rank),
+        total: parseInt(overallTotalResult.rows[0].total)
+      },
+      course: {
+        rank: parseInt(courseRankResult.rows[0].rank),
+        total: parseInt(courseTotalResult.rows[0].total),
+        name: userCourse
+      },
+      section: {
+        rank: parseInt(sectionRankResult.rows[0].rank),
+        total: parseInt(sectionTotalResult.rows[0].total),
+        name: userSection
+      }
+    };
+  } catch (error) {
+    console.error('Error calculating rankings:', error);
+    return {
+      overall: { rank: 0, total: 0 },
+      course: { rank: 0, total: 0, name: userCourse },
+      section: { rank: 0, total: 0, name: userSection }
+    };
+  }
 }
 
 module.exports = router;

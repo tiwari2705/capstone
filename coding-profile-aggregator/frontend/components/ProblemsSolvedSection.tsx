@@ -1,5 +1,5 @@
 'use client';
-import { Code2 } from '@/components/icons';
+import { Code2, Info } from '@/components/icons';
 
 interface ProblemsSolvedProps {
   stats: Record<string, {
@@ -27,6 +27,12 @@ export default function ProblemsSolvedSection({ stats }: ProblemsSolvedProps) {
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}>
         <Code2 size={20} style={{ color: 'var(--accent-purple)' }} />
         <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'white' }}>Problems by Difficulty</h3>
+        <div 
+          style={{ cursor: 'help' }}
+          title="LeetCode problems categorized by difficulty level (Easy, Medium, Hard)"
+        >
+          <Info size={14} style={{ color: 'var(--text-muted)' }} />
+        </div>
       </div>
 
       {/* Donut Chart for DSA */}

@@ -86,8 +86,11 @@ export default function LanguageStatsSection({ stats }: LanguageStatsProps) {
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}>
         <Code2 size={20} style={{ color: 'var(--accent-purple)' }} />
         <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'white' }}>Languages</h3>
-        <div title="Problems solved by programming language">
-          <Info size={14} style={{ color: 'var(--text-muted)', cursor: 'help' }} />
+        <div 
+          style={{ cursor: 'help' }}
+          title="Programming languages used to solve problems on LeetCode. Shows the number of problems solved in each language."
+        >
+          <Info size={14} style={{ color: 'var(--text-muted)' }} />
         </div>
       </div>
 

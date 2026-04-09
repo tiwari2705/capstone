@@ -4,6 +4,7 @@ import { useParams, useRouter } from 'next/navigation';
 import api from '@/lib/api';
 import PlatformCard from '@/components/PlatformCard';
 import StatCard from '@/components/StatCard';
+import RankingCard from '@/components/RankingCard';
 import { ArrowLeft, ExternalLink, Code2, Trophy, CheckCircle, Target } from '@/components/icons';
 import toast from 'react-hot-toast';
 
@@ -29,6 +30,11 @@ interface UserProfile {
   stats: Record<string, any>;
   totalProblems: number;
   score: string;
+  rankings?: {
+    overall: { rank: number; total: number };
+    course: { rank: number; total: number; name: string };
+    section: { rank: number; total: number; name: string };
+  };
 }
 
 export default function UserProfilePage() {
@@ -72,7 +78,7 @@ export default function UserProfilePage() {
     );
   }
 
-  const { user, profiles, stats, totalProblems, score } = profile;
+  const { user, profiles, stats, totalProblems, score, rankings } = profile;
 
   return (
     <div style={{ minHeight: '100vh', paddingBottom: '4rem' }}>
@@ -143,6 +149,13 @@ export default function UserProfilePage() {
             </div>
           </div>
         </div>
+
+        {/* Rankings Card - Only show if rankings data exists */}
+        {rankings && (
+          <div style={{ marginBottom: '2.5rem' }}>
+            <RankingCard rankings={rankings} />
+          </div>
+        )}
 
         {/* Audit Metrics */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-10">

@@ -82,6 +82,27 @@ const fetchLeetCodeStats = async (username) => {
         profile {
           ranking
           reputation
+          userAvatar
+        }
+        userContestRanking {
+          attendedContestsCount
+          rating
+          globalRanking
+          totalParticipants
+          topPercentage
+        }
+        userContestRankingHistory {
+          attended
+          rating
+          ranking
+          trendDirection
+          problemsSolved
+          totalProblems
+          finishTimeInSeconds
+          contest {
+            title
+            startTime
+          }
         }
         badges {
           id
@@ -138,6 +159,18 @@ const fetchLeetCodeStats = async (username) => {
   const submissionCalendar = matchedUser.userCalendar?.submissionCalendar || '{}';
   const dailySubmissions = JSON.parse(submissionCalendar);
 
+  // Extract contest rating
+  const contestRanking = matchedUser.userContestRanking || {};
+  const contestRating = Math.round(contestRanking.rating || 0);
+  const contestsAttended = contestRanking.attendedContestsCount || 0;
+  const globalRanking = contestRanking.globalRanking || 0;
+  
+  // Extract contest history to find max rating
+  const contestHistory = matchedUser.userContestRankingHistory || [];
+  const maxContestRating = contestHistory.length > 0
+    ? Math.round(Math.max(...contestHistory.map(c => c.rating || 0)))
+    : contestRating;
+
   // Extract badges
   const badges = matchedUser.badges || [];
   const badgeCount = badges.length;
@@ -179,7 +212,7 @@ const fetchLeetCodeStats = async (username) => {
     easy_solved:     easy,
     medium_solved:   medium,
     hard_solved:     hard,
-    rating:          0,
+    rating:          contestRating,
     submissions:     total,
     score:           total,
     active_days:     activeDays,
@@ -188,6 +221,10 @@ const fetchLeetCodeStats = async (username) => {
       ranking, 
       activeDays, 
       streak,
+      contestRating: contestRating,
+      maxContestRating: maxContestRating,
+      contestsAttended: contestsAttended,
+      globalRanking: globalRanking,
       badgeList: badges.map(b => ({ name: b.displayName, icon: b.icon, date: b.creationDate })),
       topicData: topicData,
       languageData: languageData,

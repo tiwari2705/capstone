@@ -63,7 +63,7 @@ export default function Home() {
         </h1>
 
         <p style={{ color: 'var(--text-muted)', fontSize: 'clamp(1rem,2vw,1.15rem)', maxWidth: 560, margin: '0 auto 2.5rem', lineHeight: 1.7 }}>
-          Aggregate your LeetCode, Codeforces, and GeeksforGeeks stats.
+          Aggregate your LeetCode, Codeforces, GeeksforGeeks and HackerRank stats.
           Compete on the leaderboard. Showcase your skills.
         </p>
 
