@@ -24,6 +24,7 @@ const platformConfig: Record<string, { color: string; label: string; url: (u: st
   codeforces:    { color: '#3b82f6', label: 'Codeforces',    url: u => `https://codeforces.com/profile/${u}` },
   geeksforgeeks: { color: '#10b981', label: 'GeeksforGeeks', url: u => `https://www.geeksforgeeks.org/user/${u}` },
   hackerrank:    { color: '#10b981', label: 'HackerRank',    url: u => `https://www.hackerrank.com/profile/${u}` },
+  codechef:      { color: '#8b5cf6', label: 'CodeChef',      url: u => `https://www.codechef.com/users/${u}` },
 };
 
 export default function PlatformCard({ platform, username, verified, stats, profileUrl }: PlatformCardProps) {

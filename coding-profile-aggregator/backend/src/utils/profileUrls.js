@@ -12,7 +12,8 @@ function getProfileUrl(platform, username) {
     leetcode: `https://leetcode.com/${username}`,
     codeforces: `https://codeforces.com/profile/${username}`,
     geeksforgeeks: `https://www.geeksforgeeks.org/user/${username}/`,
-    hackerrank: `https://www.hackerrank.com/profile/${username}`
+    hackerrank: `https://www.hackerrank.com/profile/${username}`,
+    codechef: `https://www.codechef.com/users/${username}`
   };
   
   return urls[platform.toLowerCase()] || null;
@@ -22,7 +23,7 @@ function getProfileUrl(platform, username) {
  * Validates if a platform is supported
  */
 function isSupportedPlatform(platform) {
-  const supported = ['leetcode', 'codeforces', 'geeksforgeeks', 'hackerrank'];
+  const supported = ['leetcode', 'codeforces', 'geeksforgeeks', 'hackerrank', 'codechef'];
   return supported.includes(platform.toLowerCase());
 }
 
@@ -30,7 +31,7 @@ function isSupportedPlatform(platform) {
  * Gets all supported platforms
  */
 function getSupportedPlatforms() {
-  return ['leetcode', 'codeforces', 'geeksforgeeks', 'hackerrank'];
+  return ['leetcode', 'codeforces', 'geeksforgeeks', 'hackerrank', 'codechef'];
 }
 
 module.exports = {

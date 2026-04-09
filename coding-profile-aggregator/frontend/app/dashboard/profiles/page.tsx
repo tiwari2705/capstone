@@ -17,6 +17,7 @@ const platformLabels: Record<string, { label: string; color: string; url: (u: st
   codeforces:    { label: 'Codeforces',    color: '#3b82f6', url: u => `https://codeforces.com/profile/${u}` },
   geeksforgeeks: { label: 'GeeksforGeeks', color: '#10b981', url: u => `https://www.geeksforgeeks.org/user/${u}` },
   hackerrank:    { label: 'HackerRank',    color: '#10b981', url: u => `https://www.hackerrank.com/profile/${u}` },
+  codechef:      { label: 'CodeChef',      color: '#8b5cf6', url: u => `https://www.codechef.com/users/${u}` },
 };
 
 export default function ProfilesPage() {
@@ -116,7 +117,7 @@ export default function ProfilesPage() {
   };
 
   const addedPlatforms    = profiles.map(p => p.platform);
-  const availablePlatforms = ['leetcode', 'codeforces', 'geeksforgeeks', 'hackerrank'].filter(p => !addedPlatforms.includes(p));
+  const availablePlatforms = ['leetcode', 'codeforces', 'geeksforgeeks', 'hackerrank', 'codechef'].filter(p => !addedPlatforms.includes(p));
 
   const handleShowForm = () => {
     if (availablePlatforms.length > 0) setForm({ platform: availablePlatforms[0], username: '' });
@@ -289,7 +290,9 @@ export default function ProfilesPage() {
                         ? <>profile <strong style={{ color: 'var(--text-primary)' }}>About</strong> section (Edit Profile → About), then click Verify:</>
                         : profile.platform === 'codeforces'
                           ? <>profile <strong style={{ color: 'var(--text-primary)' }}>Organization</strong> field, then click Verify:</>
-                          : <>profile bio/about section, then click Verify:</>
+                          : profile.platform === 'codechef'
+                            ? <>profile <strong style={{ color: 'var(--text-primary)' }}>About</strong> section (Edit Profile → About Yourself), then click Verify:</>
+                            : <>profile bio/about section, then click Verify:</>
                       }
                     </p>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -330,6 +333,14 @@ export default function ProfilesPage() {
             <li key={i} style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>{step}</li>
           ))}
         </ol>
+        <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.3)', borderRadius: '8px' }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '0.5rem' }}>
+            <strong style={{ color: '#8b5cf6' }}>Supported Platforms:</strong>
+          </p>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+            LeetCode, Codeforces, GeeksforGeeks, HackerRank, CodeChef
+          </p>
+        </div>
       </div>
     </div>
   );

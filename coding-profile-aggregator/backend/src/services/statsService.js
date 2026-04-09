@@ -24,6 +24,7 @@ const cheerio = require('cheerio');
 const { pool } = require('../config/db');
 const { fetchGFGStatsWithRetry } = require('./gfgScraper');
 const { fetchHackerRankStatsWithRetry } = require('./hackerRankScraper');
+const { fetchCodeChefStatsWithRetry } = require('./codechefScraper');
 
 // ─── Shared axios headers ────────────────────────────────────────────────────
 
@@ -566,6 +567,105 @@ const fetchHackerRankStats = async (username) => {
   }
 };
 
+// ─── CodeChef ────────────────────────────────────────────────────────────────
+
+/**
+ * Fetches CodeChef stats using Puppeteer-based scraping.
+ * 
+ * WHY PUPPETEER?
+ * CodeChef doesn't have a public API. We use browser automation to extract
+ * profile stats from the rendered page.
+ * 
+ * EXTRACTED DATA:
+ * - Problems solved (total, fully solved, partially solved)
+ * - Contest rating (current and highest)
+ * - Stars/rank
+ * - Badges
+ * - Problem categories
+ * 
+ * CACHING:
+ * Built-in 5-minute caching to reduce browser launches.
+ */
+const fetchCodeChefStats = async (username) => {
+  console.log(`[CodeChef] Fetching stats for ${username}...`);
+  
+  try {
+    const scrapedData = await fetchCodeChefStatsWithRetry(username);
+    
+    if (!scrapedData) {
+      throw new Error(`Profile not found or stats not available for "${username}"`);
+    }
+
+    const problemsSolved = scrapedData.problemsSolved || 0;
+    const currentRating = scrapedData.currentRating || 0;
+    const highestRating = scrapedData.highestRating || currentRating;
+    const stars = scrapedData.stars || 0;
+
+    // CodeChef badges based on stars and rating
+    const badges = [];
+    
+    if (stars >= 7) badges.push({ name: '7★ Coder', icon: '🌟', platform: 'codechef' });
+    else if (stars >= 6) badges.push({ name: '6★ Coder', icon: '⭐', platform: 'codechef' });
+    else if (stars >= 5) badges.push({ name: '5★ Coder', icon: '⭐', platform: 'codechef' });
+    else if (stars >= 4) badges.push({ name: '4★ Coder', icon: '⭐', platform: 'codechef' });
+    else if (stars >= 3) badges.push({ name: '3★ Coder', icon: '⭐', platform: 'codechef' });
+    else if (stars >= 2) badges.push({ name: '2★ Coder', icon: '⭐', platform: 'codechef' });
+    else if (stars >= 1) badges.push({ name: '1★ Coder', icon: '⭐', platform: 'codechef' });
+    
+    if (currentRating >= 2500) badges.push({ name: 'Grandmaster', icon: '🏆', platform: 'codechef' });
+    else if (currentRating >= 2200) badges.push({ name: 'Master', icon: '🥇', platform: 'codechef' });
+    else if (currentRating >= 1800) badges.push({ name: 'Expert', icon: '🥈', platform: 'codechef' });
+    
+    if (problemsSolved >= 500) badges.push({ name: '500+ Problems', icon: '💯', platform: 'codechef' });
+    else if (problemsSolved >= 100) badges.push({ name: '100+ Problems', icon: '🎯', platform: 'codechef' });
+    else if (problemsSolved >= 50) badges.push({ name: '50+ Problems', icon: '✅', platform: 'codechef' });
+
+    // Get rank name based on stars
+    const rankNames = {
+      7: '7 Star',
+      6: '6 Star',
+      5: '5 Star',
+      4: '4 Star',
+      3: '3 Star',
+      2: '2 Star',
+      1: '1 Star'
+    };
+    const rank = rankNames[stars] || 'Unrated';
+
+    const result = {
+      problems_solved: problemsSolved,
+      rating: currentRating,
+      easy_solved: 0, // CodeChef doesn't categorize by difficulty in the same way
+      medium_solved: 0,
+      hard_solved: 0,
+      submissions: problemsSolved,
+      score: currentRating * 0.1, // Score contribution
+      badges: badges.length,
+      rank: rank,
+      extra: {
+        currentRating: currentRating,
+        highestRating: highestRating,
+        maxRating: highestRating,
+        stars: stars,
+        fullySolved: scrapedData.fullySolved || 0,
+        partiallySolved: scrapedData.partiallySolved || 0,
+        contestsAttended: scrapedData.contestsAttended || 0,
+        categories: scrapedData.categories || [],
+        scrapedAt: scrapedData.scrapedAt,
+        source: 'puppeteer',
+        badgeList: badges
+      },
+    };
+
+    console.log(`[CodeChef] ✓ Success:`, result);
+    return result;
+
+  } catch (err) {
+    console.error(`[CodeChef] ✗ Error:`, err.message);
+    throw new Error(`CodeChef fetch failed for "${username}": ${err.message}`);
+  }
+};
+
 // ─── Orchestrator ────────────────────────────────────────────────────────────
 
 /**
@@ -583,6 +683,7 @@ const fetchAndStoreStats = async (userId, platform, username) => {
     codeforces:    fetchCodeforcesStats,
     geeksforgeeks: fetchGFGStats,
     hackerrank:    fetchHackerRankStats,
+    codechef:      fetchCodeChefStats,
   };
 
   const fetcher = fetchers[platform];
@@ -596,6 +697,16 @@ const fetchAndStoreStats = async (userId, platform, username) => {
   } catch (fetchErr) {
     console.error(`[Stats] ✗ ${platform}/@${username} fetch failed:`, fetchErr.message);
     throw fetchErr;
+  }
+
+  // Get previous problem count BEFORE updating (for non-LeetCode platforms)
+  let prevProblems = 0;
+  if (platform !== 'leetcode') {
+    const prevStatsResult = await pool.query(
+      `SELECT problems_solved FROM stats WHERE user_id = $1 AND platform = $2`,
+      [userId, platform]
+    );
+    prevProblems = prevStatsResult.rows[0]?.problems_solved || 0;
   }
 
   // Store main stats
@@ -653,6 +764,26 @@ const fetchAndStoreStats = async (userId, platform, username) => {
     console.log(`[Stats] ✓ Stored ${Object.keys(dailySubs).length} days of submissions`);
   }
 
+  // For other platforms (Codeforces, GFG, HackerRank): Track activity based on problem count changes
+  if (platform !== 'leetcode' && data.problems_solved > 0) {
+    const newProblems = data.problems_solved - prevProblems;
+    
+    // If there are new problems solved, record activity for today
+    if (newProblems > 0) {
+      const today = new Date().toISOString().split('T')[0];
+      
+      await pool.query(
+        `INSERT INTO daily_submissions (user_id, submission_date, platform, count)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (user_id, submission_date, platform) 
+         DO UPDATE SET count = GREATEST(daily_submissions.count, EXCLUDED.count)`,
+        [userId, today, platform, newProblems]
+      );
+      
+      console.log(`[Stats] ✓ Recorded ${newProblems} new problems for ${platform} on ${today}`);
+    }
+  }
+
   console.log(`[Stats] ✓ ${platform}/@${username}: ${data.problems_solved} problems, score=${data.score}`);
   return data;
 };
@@ -688,4 +819,4 @@ const fetchAllVerifiedStats = async () => {
   console.log(`[Cron] Done. ${succeeded} succeeded, ${failed} failed.`);
 };
 
-module.exports = { fetchAndStoreStats, fetchAllVerifiedStats, fetchLeetCodeStats, fetchCodeforcesStats, fetchGFGStats, fetchHackerRankStats };
+module.exports = { fetchAndStoreStats, fetchAllVerifiedStats, fetchLeetCodeStats, fetchCodeforcesStats, fetchGFGStats, fetchHackerRankStats, fetchCodeChefStats };

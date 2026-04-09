@@ -23,6 +23,12 @@ export default function ContestRankingsCard({ contestRankings }: ContestRankings
       color: '#10b981',
       rankLabel: true
     },
+    { 
+      key: 'codechef', 
+      name: 'CODECHEF', 
+      color: '#8b5cf6',
+      rankLabel: true
+    },
   ];
 
   const availablePlatforms = platforms.filter(p => contestRankings[p.key]);

@@ -113,15 +113,21 @@ router.get('/', authenticate, async (req, res) => {
     if (statsMap.codechef) {
       const ccExtra = statsMap.codechef.extra_data || {};
       const ccContests = contestHistory.filter(c => c.platform === 'codechef');
+      const contestRating = ccExtra.currentRating || statsMap.codechef.rating || 0;
+      const maxContestRating = ccExtra.maxRating || ccExtra.highestRating || contestRating;
+      const contestsAttended = ccExtra.contestsAttended || ccContests.length || 0;
+      
       contests.push({
         platform: 'codechef',
-        count: ccContests.length || 0,
-        rating: statsMap.codechef.rating || 0
+        count: contestsAttended,
+        rating: contestRating
       });
-      if (statsMap.codechef.rating > 0 || ccContests.length > 0) {
+      
+      if (contestRating > 0 || contestsAttended > 0) {
         contestRankings.codechef = {
-          current: statsMap.codechef.rating || 0,
-          max: ccExtra.maxRating || statsMap.codechef.rating || 0
+          current: contestRating,
+          max: maxContestRating,
+          rank: ccExtra.stars ? `${ccExtra.stars}★` : statsMap.codechef.rank || 'Unrated'
         };
       }
     }

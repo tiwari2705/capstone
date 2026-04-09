@@ -201,6 +201,68 @@ const verifyHackerRank = async (username, code) => {
   }
 };
 
+// ─── CodeChef ────────────────────────────────────────────────────────────────
+
+/**
+ * Verifies CodeChef profile by scraping the profile page with Puppeteer.
+ *
+ * WHY PUPPETEER?
+ * CodeChef doesn't have a public API. We use browser automation to render
+ * the profile page and search for the verification code.
+ *
+ * The user should place the verification code in their CodeChef profile
+ * "About Yourself" section (Edit Profile → About Yourself).
+ */
+const verifyCodeChef = async (username, code) => {
+  let browser = null;
+  let page    = null;
+  try {
+    console.log(`[Verify] Launching Puppeteer for CodeChef @${username}...`);
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+      ],
+    });
+    page = await browser.newPage();
+    await page.setViewport({ width: 1280, height: 800 });
+    await page.setUserAgent(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    );
+
+    const url = `https://www.codechef.com/users/${username}`;
+    console.log(`[Verify] Navigating to ${url}...`);
+    const response = await page.goto(url, { waitUntil: 'networkidle2', timeout: 25000 });
+
+    if (!response || response.status() === 404) {
+      console.warn(`[Verify] CodeChef profile not found for @${username}`);
+      return false;
+    }
+
+    // Wait for profile content to load
+    await new Promise(r => setTimeout(r, 2000));
+
+    // Extract all visible text from the page
+    const pageText = await page.evaluate(() => document.body.innerText || '');
+    const pageHTML = await page.evaluate(() => document.body.innerHTML || '');
+
+    // Check both visible text and raw HTML
+    const found = pageText.includes(code) || pageHTML.includes(code);
+    console.log(`[Verify] CodeChef code search: ${found ? '✓ FOUND' : '✗ NOT FOUND'}`);
+    return found;
+
+  } catch (err) {
+    console.error(`[Verify] CodeChef Puppeteer failed for @${username}:`, err.message);
+    return false;
+  } finally {
+    if (page)    await page.close().catch(() => {});
+    if (browser) await browser.close().catch(() => {});
+  }
+};
+
 // ─── Main export ─────────────────────────────────────────────────────────────
 
 /**
@@ -218,6 +280,7 @@ const verifyProfile = async (platform, username, code) => {
     codeforces:    verifyCodeforces,
     geeksforgeeks: verifyGFG,
     hackerrank:    verifyHackerRank,
+    codechef:      verifyCodeChef,
   };
 
   const verifier = verifiers[platform];

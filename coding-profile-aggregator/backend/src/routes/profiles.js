@@ -23,10 +23,10 @@ const generateVerificationCode = () => {
 // POST /api/profiles/add-profile
 router.post('/add-profile', authenticate, async (req, res) => {
   const { platform, username } = req.body;
-  const validPlatforms = ['leetcode', 'codeforces', 'geeksforgeeks', 'hackerrank'];
+  const validPlatforms = ['leetcode', 'codeforces', 'geeksforgeeks', 'hackerrank', 'codechef'];
   if (!platform || !username) return res.status(400).json({ error: 'Platform and username required' });
   if (!validPlatforms.includes(platform.toLowerCase())) {
-    return res.status(400).json({ error: 'Invalid platform. Use: leetcode, codeforces, geeksforgeeks, hackerrank' });
+    return res.status(400).json({ error: 'Invalid platform. Use: leetcode, codeforces, geeksforgeeks, hackerrank, codechef' });
   }
   const verification_code = generateVerificationCode();
   const profile_url = getProfileUrl(platform, username);

@@ -193,8 +193,8 @@ export default function UserProfilePage() {
             <span className="section-title-bar" />
             Integrations & Performance
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {['leetcode', 'codeforces', 'geeksforgeeks', 'hackerrank'].map(platform => {
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+            {['leetcode', 'codeforces', 'geeksforgeeks', 'hackerrank', 'codechef'].map(platform => {
               const p = profiles.find(pr => pr.platform === platform);
               const pStats = stats[platform] || {};
               return (
