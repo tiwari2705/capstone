@@ -46,7 +46,8 @@ export default function LeaderboardPage() {
   const [course,        setCourse]        = useState('');
   const [section,       setSection]       = useState('');
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
-  const isLoggedIn = !!getToken();
+  const [isLoggedIn,    setIsLoggedIn]    = useState(false);
+  const [mounted,       setMounted]       = useState(false);
 
   const fetchLeaderboard = useCallback(async () => {
     setLoading(true);
@@ -60,9 +61,15 @@ export default function LeaderboardPage() {
   }, [sort, order, course, section]);
 
   useEffect(() => {
-    if (isLoggedIn) api.get('/auth/me').then(r => setCurrentUserId(r.data.id)).catch(() => {});
+    setMounted(true);
+    const token = getToken();
+    setIsLoggedIn(!!token);
+    
+    if (token) {
+      api.get('/auth/me').then(r => setCurrentUserId(r.data.id)).catch(() => {});
+    }
     fetchLeaderboard();
-  }, [fetchLeaderboard, isLoggedIn]);
+  }, [fetchLeaderboard]);
 
   const toggleSort = (col: string) => {
     if (sort === col) setOrder(o => o === 'desc' ? 'asc' : 'desc');
@@ -90,15 +97,17 @@ export default function LeaderboardPage() {
           </span>
         </div>
         <div style={{ display: 'flex', gap: '0.6rem' }}>
-          {isLoggedIn ? (
-            <Link href="/dashboard" className="btn btn-ghost" style={{ fontSize: '0.875rem' }}>
-              <ArrowLeft size={15} /> Dashboard
-            </Link>
-          ) : (
-            <>
-              <Link href="/login"  className="btn btn-ghost"    style={{ fontSize: '0.875rem' }}>Login</Link>
-              <Link href="/signup" className="btn btn-primary"  style={{ fontSize: '0.875rem' }}>Sign Up</Link>
-            </>
+          {mounted && (
+            isLoggedIn ? (
+              <Link href="/dashboard" className="btn btn-ghost" style={{ fontSize: '0.875rem' }}>
+                <ArrowLeft size={15} /> Dashboard
+              </Link>
+            ) : (
+              <>
+                <Link href="/login"  className="btn btn-ghost"    style={{ fontSize: '0.875rem' }}>Login</Link>
+                <Link href="/signup" className="btn btn-primary"  style={{ fontSize: '0.875rem' }}>Sign Up</Link>
+              </>
+            )
           )}
         </div>
       </nav>
@@ -120,7 +129,7 @@ export default function LeaderboardPage() {
         {/* Score formula */}
         <div className="glass-card" style={{ padding: '0.75rem 1.1rem', marginBottom: '1rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
           <strong style={{ color: 'var(--text-secondary)' }}>Score formula:</strong>{' '}
-          (LeetCode problems × 1) + (Codeforces rating × 0.1) + (GFG score × 1)
+          (LeetCode problems × 1) + (Codeforces rating × 0.1) + (GFG problems × 1) + (HackerRank problems × 1) + (CodeChef rating × 0.1)
         </div>
 
         {/* Filters */}

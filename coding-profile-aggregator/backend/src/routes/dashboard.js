@@ -280,7 +280,8 @@ function calculateScore(statsMap) {
   const cf = statsMap['codeforces']?.rating || 0;
   const gfg = statsMap['geeksforgeeks']?.score || statsMap['geeksforgeeks']?.problems_solved || 0;
   const hr = statsMap['hackerrank']?.problems_solved || 0;
-  return parseFloat((lc * 1 + cf * 0.1 + gfg * 1 + hr * 1).toFixed(2));
+  const cc = statsMap['codechef']?.rating || 0;
+  return parseFloat((lc * 1 + cf * 0.1 + gfg * 1 + hr * 1 + cc * 0.1).toFixed(2));
 }
 
 async function calculateRankings(userId, userCourse, userSection, userTotalProblems) {
