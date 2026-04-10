@@ -1,4 +1,5 @@
-'use client';
+"use client";
+
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -7,7 +8,7 @@ import api from '@/lib/api';
 import { setToken } from '@/lib/auth';
 import { Code2 } from '@/components/icons';
 
-export default function VerifyEmailPage() {
+export default function VerifyEmailPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(false);
