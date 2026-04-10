@@ -34,7 +34,7 @@ router.get('/stats', async (req, res) => {
   }
 });
 
-module.exports = router;
+
 
 
 // GET /api/admin/users - USING EXACT SAME SQL AS PUBLIC LEADERBOARD
@@ -103,6 +103,93 @@ router.get('/users', async (req, res) => {
     });
   } catch (err) {
     console.error('Admin users list error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/users/:id - ADMIN AUDIT PROFILE
+router.get('/users/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`[Admin Trace] Fetching audit profile for user ID: ${id} by Admin: ${req.user.id}`);
+    
+    // 1. Fetch basic user info
+    const userResult = await pool.query(
+      `SELECT id, name, email, registration_no, course, section, username, role, created_at 
+       FROM users WHERE id = $1`,
+      [id]
+    );
+
+    if (userResult.rows.length === 0) {
+      console.warn(`[Admin Trace] User not found: ${id}`);
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = userResult.rows[0];
+
+    // 2. Fetch all profiles
+    const profilesResult = await pool.query(
+      'SELECT id, platform, username, profile_url, verified FROM coding_profiles WHERE user_id = $1',
+      [user.id]
+    );
+
+    // 3. Fetch all stats
+    const statsResult = await pool.query(
+      'SELECT platform, problems_solved, rating, easy_solved, medium_solved, hard_solved, submissions, active_days, badges, rank, last_updated, extra_data FROM stats WHERE user_id = $1',
+      [user.id]
+    );
+
+    const statsMap = {};
+    statsResult.rows.forEach(s => { 
+      statsMap[s.platform] = { ...s };
+    });
+
+    // 4. Calculate cumulative totals
+    const totalProblems = statsResult.rows.reduce((sum, s) => sum + (s.problems_solved || 0), 0);
+    const score = statsResult.rows.reduce((sum, s) => {
+      if (s.platform === 'leetcode') sum += (s.problems_solved || 0);
+      if (s.platform === 'codeforces') sum += (s.rating || 0) * 0.1;
+      if (s.platform === 'geeksforgeeks') sum += (s.problems_solved || 0);
+      if (s.platform === 'hackerrank') sum += (s.problems_solved || 0);
+      if (s.platform === 'codechef') sum += (s.rating || 0) * 0.1;
+      return sum;
+    }, 0);
+
+    // 5. Calculate rankings
+    let rankings = null;
+    try {
+      // Reusing standard ranking query logic
+      const overallRankRes = await pool.query(
+        `SELECT COUNT(*) + 1 as rank FROM (
+          SELECT u.id FROM users u 
+          LEFT JOIN stats s ON u.id = s.user_id 
+          WHERE u.role = 'user' GROUP BY u.id 
+          HAVING COALESCE(SUM(s.problems_solved), 0) > $1
+        ) as r`,
+        [totalProblems]
+      );
+      const overallTotalRes = await pool.query("SELECT COUNT(*) as total FROM users WHERE role = 'user'");
+      
+      rankings = {
+        overall: {
+          rank: parseInt(overallRankRes.rows[0].rank),
+          total: parseInt(overallTotalRes.rows[0].total)
+        }
+      };
+    } catch (rankErr) {
+      console.error('Error calculating rankings for admin view:', rankErr);
+    }
+
+    res.json({ 
+      user, 
+      profiles: profilesResult.rows, 
+      stats: statsMap, 
+      totalProblems, 
+      score: score.toFixed(2),
+      rankings
+    });
+  } catch (err) {
+    console.error('Admin user profile error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -317,3 +404,144 @@ router.post('/sync-stats', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+module.exports = router;
+
+
+// GET /api/admin/users/:identifier
+router.get('/users/:identifier', async (req, res) => {
+  try {
+    const { identifier } = req.params;
+    const userResult = await pool.query('SELECT id, name, email, registration_no, course, section, year_of_passing, role, created_at FROM users WHERE registration_no = $1 OR email = $1 OR id::text = $1', [identifier]);
+    if (userResult.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+    
+    const user = userResult.rows[0];
+    const profilesResult = await pool.query('SELECT * FROM coding_profiles WHERE user_id = $1', [user.id]);
+    const statsResult = await pool.query('SELECT * FROM stats WHERE user_id = $1', [user.id]);
+    
+    const statsMap = {};
+    statsResult.rows.forEach(s => { statsMap[s.platform] = s; });
+    
+    // Calculate using SQL
+    const calcResult = await pool.query(`
+      SELECT
+        (COALESCE(lc.problems_solved, 0) + COALESCE(cf.problems_solved, 0) + COALESCE(gfg.problems_solved, 0) + COALESCE(hr.problems_solved, 0) + COALESCE(cc.problems_solved, 0)) AS total_problems,
+        ROUND(
+          COALESCE(lc.problems_solved, 0) * 1.0 +
+          COALESCE(cf.rating, 0) * 0.1 +
+          COALESCE(gfg.problems_solved, 0) * 1.0 +
+          COALESCE(hr.problems_solved, 0) * 1.0 +
+          COALESCE(cc.rating, 0) * 0.1,
+          2
+        ) AS total_score
+      FROM users u
+      LEFT JOIN stats lc ON lc.user_id = u.id AND lc.platform = 'leetcode'
+      LEFT JOIN stats cf ON cf.user_id = u.id AND cf.platform = 'codeforces'
+      LEFT JOIN stats gfg ON gfg.user_id = u.id AND gfg.platform = 'geeksforgeeks'
+      LEFT JOIN stats hr ON hr.user_id = u.id AND hr.platform = 'hackerrank'
+      LEFT JOIN stats cc ON cc.user_id = u.id AND cc.platform = 'codechef'
+      WHERE u.id = $1
+    `, [user.id]);
+    
+    const totalProblems = parseInt(calcResult.rows[0]?.total_problems || 0);
+    const totalScore = parseFloat(calcResult.rows[0]?.total_score || 0);
+    
+    // Calculate rankings
+    const rankings = await calculateRankings(user.id, user.course, user.section, totalProblems);
+    
+    res.json({ user, profiles: profilesResult.rows, stats: statsMap, totalProblems, score: totalScore, rankings });
+  } catch (err) {
+    console.error('Admin user detail error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/admin/users/:id/role
+router.patch('/users/:id/role', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { role } = req.body;
+    if (!['user', 'admin'].includes(role)) return res.status(400).json({ error: 'Invalid role. Must be "user" or "admin"' });
+    const result = await pool.query('UPDATE users SET role = $1 WHERE id = $2 RETURNING id, name, email, role', [role, id]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+    res.json({ message: `User role updated to ${role}`, user: result.rows[0] });
+  } catch (err) {
+    console.error('Admin update role error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Helper function for rankings - USING CORRECT SQL WITH PLATFORM-SPECIFIC JOINS
+async function calculateRankings(userId, userCourse, userSection, userTotalProblems) {
+  try {
+    // Overall ranking - count users with more problems
+    const overallRankResult = await pool.query(`
+      SELECT COUNT(*) + 1 as rank
+      FROM (
+        SELECT u.id,
+          (COALESCE(lc.problems_solved, 0) + COALESCE(cf.problems_solved, 0) + COALESCE(gfg.problems_solved, 0) + COALESCE(hr.problems_solved, 0) + COALESCE(cc.problems_solved, 0)) AS total_problems
+        FROM users u
+        LEFT JOIN stats lc ON lc.user_id = u.id AND lc.platform = 'leetcode'
+        LEFT JOIN stats cf ON cf.user_id = u.id AND cf.platform = 'codeforces'
+        LEFT JOIN stats gfg ON gfg.user_id = u.id AND gfg.platform = 'geeksforgeeks'
+        LEFT JOIN stats hr ON hr.user_id = u.id AND hr.platform = 'hackerrank'
+        LEFT JOIN stats cc ON cc.user_id = u.id AND cc.platform = 'codechef'
+        WHERE u.role = 'user'
+      ) as ranked_users
+      WHERE total_problems > $1
+    `, [userTotalProblems]);
+
+    const overallTotalResult = await pool.query(`SELECT COUNT(*) as total FROM users WHERE role = 'user'`);
+
+    // Course-wise ranking
+    const courseRankResult = await pool.query(`
+      SELECT COUNT(*) + 1 as rank
+      FROM (
+        SELECT u.id,
+          (COALESCE(lc.problems_solved, 0) + COALESCE(cf.problems_solved, 0) + COALESCE(gfg.problems_solved, 0) + COALESCE(hr.problems_solved, 0) + COALESCE(cc.problems_solved, 0)) AS total_problems
+        FROM users u
+        LEFT JOIN stats lc ON lc.user_id = u.id AND lc.platform = 'leetcode'
+        LEFT JOIN stats cf ON cf.user_id = u.id AND cf.platform = 'codeforces'
+        LEFT JOIN stats gfg ON gfg.user_id = u.id AND gfg.platform = 'geeksforgeeks'
+        LEFT JOIN stats hr ON hr.user_id = u.id AND hr.platform = 'hackerrank'
+        LEFT JOIN stats cc ON cc.user_id = u.id AND cc.platform = 'codechef'
+        WHERE u.role = 'user' AND u.course = $1
+      ) as ranked_users
+      WHERE total_problems > $2
+    `, [userCourse, userTotalProblems]);
+
+    const courseTotalResult = await pool.query(`SELECT COUNT(*) as total FROM users WHERE role = 'user' AND course = $1`, [userCourse]);
+
+    // Section-wise ranking
+    const sectionRankResult = await pool.query(`
+      SELECT COUNT(*) + 1 as rank
+      FROM (
+        SELECT u.id,
+          (COALESCE(lc.problems_solved, 0) + COALESCE(cf.problems_solved, 0) + COALESCE(gfg.problems_solved, 0) + COALESCE(hr.problems_solved, 0) + COALESCE(cc.problems_solved, 0)) AS total_problems
+        FROM users u
+        LEFT JOIN stats lc ON lc.user_id = u.id AND lc.platform = 'leetcode'
+        LEFT JOIN stats cf ON cf.user_id = u.id AND cf.platform = 'codeforces'
+        LEFT JOIN stats gfg ON gfg.user_id = u.id AND gfg.platform = 'geeksforgeeks'
+        LEFT JOIN stats hr ON hr.user_id = u.id AND hr.platform = 'hackerrank'
+        LEFT JOIN stats cc ON cc.user_id = u.id AND cc.platform = 'codechef'
+        WHERE u.role = 'user' AND u.section = $1
+      ) as ranked_users
+      WHERE total_problems > $2
+    `, [userSection, userTotalProblems]);
+
+    const sectionTotalResult = await pool.query(`SELECT COUNT(*) as total FROM users WHERE role = 'user' AND section = $1`, [userSection]);
+
+    return {
+      overall: { rank: parseInt(overallRankResult.rows[0].rank), total: parseInt(overallTotalResult.rows[0].total) },
+      course: { rank: parseInt(courseRankResult.rows[0].rank), total: parseInt(courseTotalResult.rows[0].total), name: userCourse },
+      section: { rank: parseInt(sectionRankResult.rows[0].rank), total: parseInt(sectionTotalResult.rows[0].total), name: userSection }
+    };
+  } catch (error) {
+    console.error('Error calculating rankings:', error);
+    return {
+      overall: { rank: 0, total: 0 },
+      course: { rank: 0, total: 0, name: userCourse },
+      section: { rank: 0, total: 0, name: userSection }
+    };
+  }
+}

@@ -286,17 +286,21 @@ function calculateScore(statsMap) {
 
 async function calculateRankings(userId, userCourse, userSection, userTotalProblems) {
   try {
-    // Overall ranking
+    // Overall ranking - count users with more problems
     const overallRankResult = await pool.query(`
       SELECT COUNT(*) + 1 as rank
       FROM (
-        SELECT u.id, COALESCE(SUM(s.problems_solved), 0) as total_problems
+        SELECT u.id,
+          (COALESCE(lc.problems_solved, 0) + COALESCE(cf.problems_solved, 0) + COALESCE(gfg.problems_solved, 0) + COALESCE(hr.problems_solved, 0) + COALESCE(cc.problems_solved, 0)) AS total_problems
         FROM users u
-        LEFT JOIN stats s ON u.id = s.user_id
+        LEFT JOIN stats lc ON lc.user_id = u.id AND lc.platform = 'leetcode'
+        LEFT JOIN stats cf ON cf.user_id = u.id AND cf.platform = 'codeforces'
+        LEFT JOIN stats gfg ON gfg.user_id = u.id AND gfg.platform = 'geeksforgeeks'
+        LEFT JOIN stats hr ON hr.user_id = u.id AND hr.platform = 'hackerrank'
+        LEFT JOIN stats cc ON cc.user_id = u.id AND cc.platform = 'codechef'
         WHERE u.role = 'user'
-        GROUP BY u.id
-        HAVING COALESCE(SUM(s.problems_solved), 0) > $1
       ) as ranked_users
+      WHERE total_problems > $1
     `, [userTotalProblems]);
 
     const overallTotalResult = await pool.query(`
@@ -309,13 +313,17 @@ async function calculateRankings(userId, userCourse, userSection, userTotalProbl
     const courseRankResult = await pool.query(`
       SELECT COUNT(*) + 1 as rank
       FROM (
-        SELECT u.id, COALESCE(SUM(s.problems_solved), 0) as total_problems
+        SELECT u.id,
+          (COALESCE(lc.problems_solved, 0) + COALESCE(cf.problems_solved, 0) + COALESCE(gfg.problems_solved, 0) + COALESCE(hr.problems_solved, 0) + COALESCE(cc.problems_solved, 0)) AS total_problems
         FROM users u
-        LEFT JOIN stats s ON u.id = s.user_id
+        LEFT JOIN stats lc ON lc.user_id = u.id AND lc.platform = 'leetcode'
+        LEFT JOIN stats cf ON cf.user_id = u.id AND cf.platform = 'codeforces'
+        LEFT JOIN stats gfg ON gfg.user_id = u.id AND gfg.platform = 'geeksforgeeks'
+        LEFT JOIN stats hr ON hr.user_id = u.id AND hr.platform = 'hackerrank'
+        LEFT JOIN stats cc ON cc.user_id = u.id AND cc.platform = 'codechef'
         WHERE u.role = 'user' AND u.course = $1
-        GROUP BY u.id
-        HAVING COALESCE(SUM(s.problems_solved), 0) > $2
       ) as ranked_users
+      WHERE total_problems > $2
     `, [userCourse, userTotalProblems]);
 
     const courseTotalResult = await pool.query(`
@@ -328,13 +336,17 @@ async function calculateRankings(userId, userCourse, userSection, userTotalProbl
     const sectionRankResult = await pool.query(`
       SELECT COUNT(*) + 1 as rank
       FROM (
-        SELECT u.id, COALESCE(SUM(s.problems_solved), 0) as total_problems
+        SELECT u.id,
+          (COALESCE(lc.problems_solved, 0) + COALESCE(cf.problems_solved, 0) + COALESCE(gfg.problems_solved, 0) + COALESCE(hr.problems_solved, 0) + COALESCE(cc.problems_solved, 0)) AS total_problems
         FROM users u
-        LEFT JOIN stats s ON u.id = s.user_id
+        LEFT JOIN stats lc ON lc.user_id = u.id AND lc.platform = 'leetcode'
+        LEFT JOIN stats cf ON cf.user_id = u.id AND cf.platform = 'codeforces'
+        LEFT JOIN stats gfg ON gfg.user_id = u.id AND gfg.platform = 'geeksforgeeks'
+        LEFT JOIN stats hr ON hr.user_id = u.id AND hr.platform = 'hackerrank'
+        LEFT JOIN stats cc ON cc.user_id = u.id AND cc.platform = 'codechef'
         WHERE u.role = 'user' AND u.section = $1
-        GROUP BY u.id
-        HAVING COALESCE(SUM(s.problems_solved), 0) > $2
       ) as ranked_users
+      WHERE total_problems > $2
     `, [userSection, userTotalProblems]);
 
     const sectionTotalResult = await pool.query(`
