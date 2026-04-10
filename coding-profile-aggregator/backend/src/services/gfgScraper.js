@@ -49,7 +49,11 @@ async function getBrowser() {
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
+      '--disable-acceleration',
       '--disable-gpu',
+      '--no-first-run',
+      '--no-zygote',
+      '--single-process'
     ],
   });
 

@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node src/index.js",
     "kill-port": "powershell -Command \"Get-NetTCPConnection -LocalPort 5000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | Sort-Object -Unique | Where-Object { $_ -gt 0 } | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }\"",
+    "build": "npm install && npx puppeteer install",
     "dev": "npm run kill-port && nodemon src/index.js"
   },
   "dependencies": {

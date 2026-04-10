@@ -45,6 +45,14 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
 });
 
+// Environment Validation Logs
+console.log('--- Environment Check ---');
+console.log(`FRONTEND_URL: ${process.env.FRONTEND_URL || 'NOT SET (defaulting to localhost:3000)'}`);
+console.log(`DATABASE_URL: ${process.env.DATABASE_URL ? 'PRESENT' : 'MISSING'}`);
+console.log(`BACKEND_URL (for self-ping): ${process.env.BACKEND_URL || 'NOT SET'}`);
+console.log(`PORT: ${PORT}`);
+console.log('-------------------------');
+
 const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   
