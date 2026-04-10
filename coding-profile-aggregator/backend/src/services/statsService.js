@@ -85,26 +85,6 @@ const fetchLeetCodeStats = async (username) => {
           reputation
           userAvatar
         }
-        userContestRanking {
-          attendedContestsCount
-          rating
-          globalRanking
-          totalParticipants
-          topPercentage
-        }
-        userContestRankingHistory {
-          attended
-          rating
-          ranking
-          trendDirection
-          problemsSolved
-          totalProblems
-          finishTimeInSeconds
-          contest {
-            title
-            startTime
-          }
-        }
         badges {
           id
           displayName
@@ -136,17 +116,18 @@ const fetchLeetCodeStats = async (username) => {
     }
   `;
 
-  const res = await axios.post(
-    'https://leetcode.com/graphql',
-    { query, variables: { username } },
-    { headers: LEETCODE_HEADERS, timeout: 15000 }
-  );
+  try {
+    const res = await axios.post(
+      'https://leetcode.com/graphql',
+      { query, variables: { username } },
+      { headers: LEETCODE_HEADERS, timeout: 15000 }
+    );
 
-  const matchedUser = res.data?.data?.matchedUser;
-  if (!matchedUser) throw new Error(`LeetCode user "${username}" not found`);
+    const matchedUser = res.data?.data?.matchedUser;
+    if (!matchedUser) throw new Error(`LeetCode user "${username}" not found`);
 
-  const acStats = matchedUser.submitStats?.acSubmissionNum || [];
-  const find = (difficulty) => acStats.find(s => s.difficulty === difficulty)?.count || 0;
+    const acStats = matchedUser.submitStats?.acSubmissionNum || [];
+    const find = (difficulty) => acStats.find(s => s.difficulty === difficulty)?.count || 0;
 
   const total     = find('All');
   const easy      = find('Easy');
@@ -160,17 +141,12 @@ const fetchLeetCodeStats = async (username) => {
   const submissionCalendar = matchedUser.userCalendar?.submissionCalendar || '{}';
   const dailySubmissions = JSON.parse(submissionCalendar);
 
-  // Extract contest rating
-  const contestRanking = matchedUser.userContestRanking || {};
-  const contestRating = Math.round(contestRanking.rating || 0);
-  const contestsAttended = contestRanking.attendedContestsCount || 0;
-  const globalRanking = contestRanking.globalRanking || 0;
-  
-  // Extract contest history to find max rating
-  const contestHistory = matchedUser.userContestRankingHistory || [];
-  const maxContestRating = contestHistory.length > 0
-    ? Math.round(Math.max(...contestHistory.map(c => c.rating || 0)))
-    : contestRating;
+  // Note: LeetCode removed userContestRanking and userContestRankingHistory from their API
+  // Contest data is no longer available through GraphQL
+  const contestRating = 0;
+  const contestsAttended = 0;
+  const globalRanking = 0;
+  const maxContestRating = 0;
 
   // Extract badges
   const badges = matchedUser.badges || [];
@@ -232,6 +208,14 @@ const fetchLeetCodeStats = async (username) => {
       dailySubmissions: dailySubmissions
     },
   };
+  } catch (error) {
+    console.error(`[LeetCode] Error fetching stats for ${username}:`, error.message);
+    if (error.response) {
+      console.error(`[LeetCode] Response status: ${error.response.status}`);
+      console.error(`[LeetCode] Response data:`, JSON.stringify(error.response.data).substring(0, 500));
+    }
+    throw error;
+  }
 };
 
 // ─── Codeforces ──────────────────────────────────────────────────────────────
@@ -696,6 +680,11 @@ const fetchAndStoreStats = async (userId, platform, username) => {
     data = await fetcher(username);
   } catch (fetchErr) {
     console.error(`[Stats] ✗ ${platform}/@${username} fetch failed:`, fetchErr.message);
+    // Log more details for debugging
+    if (fetchErr.response) {
+      console.error(`[Stats] Response status: ${fetchErr.response.status}`);
+      console.error(`[Stats] Response data:`, JSON.stringify(fetchErr.response.data).substring(0, 500));
+    }
     throw fetchErr;
   }
 
