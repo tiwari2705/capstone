@@ -16,7 +16,15 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 app.use(cors({ 
-  origin: [process.env.FRONTEND_URL, 'http://localhost:3000'].filter(Boolean), 
+  origin: function (origin, callback) {
+    const allowed = [process.env.FRONTEND_URL, 'http://localhost:3000'].filter(Boolean);
+    if (!origin || allowed.some(url => url === origin || url.replace(/\/$/, '') === origin)) {
+      callback(null, true);
+    } else {
+      console.warn(`[CORS] Rejected origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  }, 
   credentials: true 
 }));
 app.use(express.json());

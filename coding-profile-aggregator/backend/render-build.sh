@@ -1,4 +1,4 @@
-#!/usr/bin/env opt/render/project/src/backend/render-build.sh
+#!/usr/bin/env bash
 
 # Exit on error
 set -o errexit
