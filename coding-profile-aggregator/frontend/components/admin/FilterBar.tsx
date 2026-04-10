@@ -3,13 +3,13 @@
 interface FilterBarProps {
   courses: string[];
   sections: string[];
-  years: number[];
+  years?: number[];
   selectedCourse: string;
   selectedSection: string;
-  selectedYear: string;
+  selectedYear?: string;
   onCourseChange: (course: string) => void;
   onSectionChange: (section: string) => void;
-  onYearChange: (year: string) => void;
+  onYearChange?: (year: string) => void;
   onReset?: () => void;
 }
 
@@ -59,21 +59,23 @@ export default function FilterBar({
         </select>
       </div>
 
-      <div className="flex-1 min-w-[200px]">
-        <label className="form-label">Year of Passing</label>
-        <select
-          value={selectedYear}
-          onChange={(e) => onYearChange(e.target.value)}
-          className="form-input"
-        >
-          <option value="">All Years</option>
-          {years.map((year) => (
-            <option key={year} value={year}>
-              {year}
-            </option>
-          ))}
-        </select>
-      </div>
+      {years.length > 0 && onYearChange && (
+        <div className="flex-1 min-w-[200px]">
+          <label className="form-label">Year of Passing</label>
+          <select
+            value={selectedYear}
+            onChange={(e) => onYearChange(e.target.value)}
+            className="form-input"
+          >
+            <option value="">All Years</option>
+            {years.map((year) => (
+              <option key={year} value={year}>
+                {year}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {onReset && (selectedCourse || selectedSection || selectedYear) && (
         <div className="flex items-end h-[68px]">
