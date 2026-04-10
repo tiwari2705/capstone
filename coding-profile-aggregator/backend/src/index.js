@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const { initDB } = require('./config/db');
+const { initDB, getIsDBReady } = require('./config/db');
 const authRoutes = require('./routes/auth');
 const profileRoutes = require('./routes/profiles');
 const dashboardRoutes = require('./routes/dashboard');
@@ -15,8 +15,19 @@ const { closeBrowser: closeHRBrowser } = require('./services/hackerRankScraper')
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:3000', credentials: true }));
+app.use(cors({ 
+  origin: [process.env.FRONTEND_URL, 'http://localhost:3000'].filter(Boolean), 
+  credentials: true 
+}));
 app.use(express.json());
+
+// Readiness middleare (skip for health check)
+app.use((req, res, next) => {
+  if (!getIsDBReady() && req.path.startsWith('/api/') && req.path !== '/api/health') {
+    return res.status(503).json({ error: 'Backend is starting up and initializing database...' });
+  }
+  next();
+});
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -34,9 +45,11 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
 });
 
-initDB().then(() => {
-  const server = app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+const server = app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  
+  // Initialize DB in background
+  initDB().then(() => {
     startCronJobs();
     
     // Self-ping to keep Render instance alive
@@ -53,23 +66,22 @@ initDB().then(() => {
         }
       }, 10 * 60 * 1000); // Ping every 10 minutes
     }
+  }).catch(err => {
+    console.error('Failed to initialize DB:', err);
+    // Don't exit process here, let the status 503 handle it for the frontend
   });
-
-  const shutdown = async (signal) => {
-    console.log(`\n[Server] ${signal} received — shutting down gracefully...`);
-    server.close(async () => {
-      await closeGFGBrowser();
-      await closeHRBrowser();
-      process.exit(0);
-    });
-    // Force-exit after 5s if server.close() hangs
-    setTimeout(() => process.exit(0), 5000).unref();
-  };
-
-  process.on('SIGINT',  () => shutdown('SIGINT'));
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-
-}).catch(err => {
-  console.error('Failed to initialize DB:', err);
-  process.exit(1);
 });
+
+const shutdown = async (signal) => {
+  console.log(`\n[Server] ${signal} received — shutting down gracefully...`);
+  server.close(async () => {
+    await closeGFGBrowser();
+    await closeHRBrowser();
+    process.exit(0);
+  });
+  // Force-exit after 5s if server.close() hangs
+  setTimeout(() => process.exit(0), 5000).unref();
+};
+
+process.on('SIGINT',  () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));

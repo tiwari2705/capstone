@@ -59,10 +59,13 @@ export default function DashboardPage() {
       setData(res.data);
       setIsWakingUp(false);
       setLoading(false);
-    } catch (err) {
-      if (retryAttempt < 5) {
+    } catch (err: any) {
+      // Retry for network errors, timeouts, or 503 (initializing)
+      const shouldRetry = !err.response || err.response.status === 503 || err.code === 'ECONNABORTED';
+      
+      if (shouldRetry && retryAttempt < 8) {
         setIsWakingUp(true);
-        console.log(`Server might be waking up... retry ${retryAttempt + 1}`);
+        console.log(`Server is initializing or waking up... retry ${retryAttempt + 1}`);
         setTimeout(() => fetchDashboard(retryAttempt + 1), 5000);
       } else {
         setError(true);
@@ -105,12 +108,12 @@ export default function DashboardPage() {
     }}>
       <div className="spinner" />
       {isWakingUp && (
-        <div style={{ textAlign: 'center', animation: 'pulse 2s infinite' }}>
+        <div style={{ textAlign: 'center', animation: 'fade-in 0.5s ease-out' }}>
           <p style={{ color: '#fff', fontSize: '1.2rem', fontWeight: 600, marginBottom: '0.5rem' }}>
-            Waking up the server...
+            Preparing your dashboard...
           </p>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-            Render free tier services sleep after inactivity. This may take up to a minute.
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', maxWidth: '400px' }}>
+            The server is waking up and initializing the database. This is common on free-tier hosting and may take about a minute.
           </p>
         </div>
       )}

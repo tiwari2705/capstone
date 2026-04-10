@@ -2,6 +2,7 @@ const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+let isDBReady = false;
 
 const initDB = async () => {
   const client = await pool.connect();
@@ -170,9 +171,10 @@ const initDB = async () => {
     // }
 
     console.log('Database initialized successfully.');
+    isDBReady = true;
   } finally {
     client.release();
   }
 };
 
-module.exports = { pool, initDB };
+module.exports = { pool, initDB, getIsDBReady: () => isDBReady };
