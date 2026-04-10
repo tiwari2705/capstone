@@ -44,20 +44,17 @@ export default function AuthForm({ mode }: AuthFormProps) {
     setLoading(true);
     try {
       const endpoint = mode === 'login' ? '/auth/login' : '/auth/signup';
-      // For login, send the registration_no field as the identifier
       const payload  = mode === 'login' 
         ? { registration_no: form.registration_no, password: form.password } 
         : form;
       const res      = await api.post(endpoint, payload);
       
-      // Handle signup with email verification
       if (mode === 'signup' && res.data.requiresVerification) {
         toast.success('Account created! Please check your email for OTP.');
         router.push(`/verify-email?email=${encodeURIComponent(res.data.email)}`);
         return;
       }
       
-      // Handle login with unverified email
       if (mode === 'login' && res.data.requiresVerification) {
         toast.error('Please verify your email first');
         router.push(`/verify-email?email=${encodeURIComponent(res.data.email)}`);
@@ -75,7 +72,7 @@ export default function AuthForm({ mode }: AuthFormProps) {
       if (!error.response) {
         toast.error('Cannot connect to server. Please ensure the backend is running.');
       } else {
-        const errorData = err.response.data;
+        const errorData = error.response.data; // ← fixed: was err.response.data
         if (errorData?.requiresVerification) {
           toast.error(errorData.error);
           router.push(`/verify-email?email=${encodeURIComponent(errorData.email)}`);
@@ -161,7 +158,6 @@ export default function AuthForm({ mode }: AuthFormProps) {
             {mode === 'signup' && (
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                  {/* Course Dropdown */}
                   <div>
                     <label className="form-label">Course</label>
                     <select
@@ -180,7 +176,6 @@ export default function AuthForm({ mode }: AuthFormProps) {
                   {field('section', 'Section', 'text', 'A')}
                 </div>
 
-                {/* Year of Passing */}
                 <div>
                   <label className="form-label">Year of Passing</label>
                   <select
