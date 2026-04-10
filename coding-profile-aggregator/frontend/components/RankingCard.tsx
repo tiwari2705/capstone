@@ -13,6 +13,11 @@ interface RankingCardProps {
 }
 
 export default function RankingCard({ rankings }: RankingCardProps) {
+  // Defensive checks for undefined rankings
+  if (!rankings || !rankings.overall || !rankings.course || !rankings.section) {
+    return null;
+  }
+
   // Calculate percentiles
   const overallPercentile = rankings.overall.total > 0 
     ? ((rankings.overall.total - rankings.overall.rank + 1) / rankings.overall.total * 100).toFixed(1)

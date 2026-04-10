@@ -49,11 +49,18 @@ export default function UserProfilePage() {
 
   const fetchUserProfile = async () => {
     try {
-      const { data } = await api.get(`/admin/users/${params.id}`);
+      const url = `/admin/users/${params.id}`;
+      // console.log(`[Admin Trace] Calling: ${url}`);
+      const { data } = await api.get(url);
       setProfile(data);
     } catch (err: any) {
-      console.error('Failed to fetch user profile:', err);
-      toast.error('Failed to load user profile');
+      console.error('[Admin Audit Error]', {
+        status: err.response?.status,
+        data: err.response?.data,
+        message: err.message,
+        url: err.config?.url
+      });
+      toast.error(`Failed to load user profile: ${err.message}`);
     } finally {
       setLoading(false);
     }
