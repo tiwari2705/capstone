@@ -49,15 +49,26 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [isWakingUp, setIsWakingUp] = useState(false);
+  const [error, setError] = useState(false);
 
-  const fetchDashboard = async () => {
+  const fetchDashboard = async (retryAttempt = 0) => {
     try {
+      setError(false);
       const res = await api.get('/dashboard');
       setData(res.data);
-    } catch {
-      toast.error('Failed to load dashboard');
-    } finally {
+      setIsWakingUp(false);
       setLoading(false);
+    } catch (err) {
+      if (retryAttempt < 5) {
+        setIsWakingUp(true);
+        console.log(`Server might be waking up... retry ${retryAttempt + 1}`);
+        setTimeout(() => fetchDashboard(retryAttempt + 1), 5000);
+      } else {
+        setError(true);
+        setLoading(false);
+        toast.error('Server is taking too long to respond. Please refresh manually.');
+      }
     }
   };
 
@@ -83,8 +94,42 @@ export default function DashboardPage() {
   useEffect(() => { fetchDashboard(); }, []);
 
   if (loading) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
+    <div style={{ 
+      display: 'flex', 
+      flexDirection: 'column', 
+      alignItems: 'center', 
+      justifyContent: 'center', 
+      minHeight: '100vh',
+      gap: '1.5rem',
+      background: 'var(--bg-dark)'
+    }}>
       <div className="spinner" />
+      {isWakingUp && (
+        <div style={{ textAlign: 'center', animation: 'pulse 2s infinite' }}>
+          <p style={{ color: '#fff', fontSize: '1.2rem', fontWeight: 600, marginBottom: '0.5rem' }}>
+            Waking up the server...
+          </p>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+            Render free tier services sleep after inactivity. This may take up to a minute.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+
+  if (error) return (
+    <div style={{ 
+      display: 'flex', 
+      flexDirection: 'column', 
+      alignItems: 'center', 
+      justifyContent: 'center', 
+      minHeight: '100vh',
+      gap: '1.5rem'
+    }}>
+      <p style={{ color: 'var(--text-muted)' }}>Failed to connect to the server.</p>
+      <button onClick={() => { setLoading(true); fetchDashboard(); }} className="btn btn-primary">
+        Try Again
+      </button>
     </div>
   );
 

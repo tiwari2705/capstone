@@ -38,6 +38,21 @@ initDB().then(() => {
   const server = app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     startCronJobs();
+    
+    // Self-ping to keep Render instance alive
+    const BACKEND_URL = process.env.BACKEND_URL;
+    if (BACKEND_URL) {
+      console.log(`[Keep-Alive] Starting self-ping for: ${BACKEND_URL}`);
+      setInterval(async () => {
+        try {
+          const axios = require('axios');
+          await axios.get(`${BACKEND_URL}/api/health`);
+          console.log('[Keep-Alive] Self-ping successful');
+        } catch (err) {
+          console.error('[Keep-Alive] Self-ping failed:', err.message);
+        }
+      }, 10 * 60 * 1000); // Ping every 10 minutes
+    }
   });
 
   const shutdown = async (signal) => {
