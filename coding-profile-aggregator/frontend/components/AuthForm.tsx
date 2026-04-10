@@ -69,10 +69,17 @@ export default function AuthForm({ mode }: AuthFormProps) {
       router.push(userRole === 'admin' ? '/admin' : '/dashboard');
     } catch (err) {
       const error = err as AxiosError<any>;
+      console.error('[Auth Error Details]', {
+        message: error.message,
+        code: error.code,
+        status: error.response?.status,
+        url: error.config?.url
+      });
+      
       if (!error.response) {
-        toast.error('Cannot connect to server. Please ensure the backend is running.');
+        toast.error(`Connection failed: ${error.message}. Checking console for details.`);
       } else {
-        const errorData = error.response.data; // ← fixed: was err.response.data
+        const errorData = error.response.data;
         if (errorData?.requiresVerification) {
           toast.error(errorData.error);
           router.push(`/verify-email?email=${encodeURIComponent(errorData.email)}`);
