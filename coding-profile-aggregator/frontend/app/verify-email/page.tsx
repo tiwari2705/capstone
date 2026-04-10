@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
@@ -8,7 +8,7 @@ import api from '@/lib/api';
 import { setToken } from '@/lib/auth';
 import { Code2 } from '@/components/icons';
 
-export default function VerifyEmailPageInner() {
+function VerifyEmailPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(false);
@@ -119,5 +119,13 @@ export default function VerifyEmailPageInner() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function VerifyEmailPage() {
+  return (
+    <Suspense fallback={<div style={{ minHeight: '100vh', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>Loading...</div>}>
+      <VerifyEmailPageInner />
+    </Suspense>
   );
 }
