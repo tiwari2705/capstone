@@ -117,7 +117,6 @@ export default function AdminLeaderboardPage() {
             >
               <option value="score">Total Score</option>
               <option value="problems">Problems Solved</option>
-              <option value="rating">Average Rating</option>
             </select>
           </div>
         </div>
