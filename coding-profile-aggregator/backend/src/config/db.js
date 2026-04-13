@@ -1,12 +1,29 @@
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new Pool({ 
+  connectionString: process.env.DATABASE_URL,
+  max: 20,                      // Max connections (was ~10 default)
+  idleTimeoutMillis: 30000,     // Close idle connections after 30s
+  connectionTimeoutMillis: 5000, // Timeout for acquiring connection
+  statement_timeout: 60000,     // Kill long-running queries after 60s
+  query_timeout: 60000          // Kill queries after 60s
+});
+
+// Monitor pool errors
+pool.on('error', (err, client) => {
+  console.error('[DB Pool] Unexpected error:', err);
+  process.exit(-1);
+});
+
 let isDBReady = false;
 
 const initDB = async () => {
+  // Create a client with longer timeout for initialization
   const client = await pool.connect();
   try {
+    // Set longer timeout for initial setup queries
+    await client.query('SET statement_timeout = 300000'); // 5 minutes for init
     // 1. Basic Table setup
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
@@ -144,7 +161,50 @@ const initDB = async () => {
       console.warn('Migration warning (non-fatal):', migErr.message);
     }
 
-    // 3. Superadmin Seeding
+    // 3. Create Indexes for Performance
+    console.log('[DB] Creating indexes for performance...');
+    try {
+      await client.query(`
+        -- User indexes
+        CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+        CREATE INDEX IF NOT EXISTS idx_users_registration_no ON users(registration_no);
+        CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+        CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+
+        -- Stats indexes
+        CREATE INDEX IF NOT EXISTS idx_stats_user_id ON stats(user_id);
+        CREATE INDEX IF NOT EXISTS idx_stats_platform ON stats(platform);
+        CREATE INDEX IF NOT EXISTS idx_stats_rating ON stats(rating DESC);
+        CREATE INDEX IF NOT EXISTS idx_stats_problems ON stats(problems_solved DESC);
+        CREATE INDEX IF NOT EXISTS idx_stats_score ON stats(score DESC);
+        CREATE INDEX IF NOT EXISTS idx_stats_user_platform ON stats(user_id, platform);
+        CREATE INDEX IF NOT EXISTS idx_stats_last_updated ON stats(last_updated DESC);
+
+        -- Coding profiles indexes
+        CREATE INDEX IF NOT EXISTS idx_coding_profiles_user_id ON coding_profiles(user_id);
+        CREATE INDEX IF NOT EXISTS idx_coding_profiles_verified ON coding_profiles(verified);
+        CREATE INDEX IF NOT EXISTS idx_coding_profiles_platform ON coding_profiles(platform);
+        CREATE INDEX IF NOT EXISTS idx_coding_profiles_user_platform ON coding_profiles(user_id, platform);
+
+        -- Daily submissions indexes
+        CREATE INDEX IF NOT EXISTS idx_daily_submissions_user_id ON daily_submissions(user_id);
+        CREATE INDEX IF NOT EXISTS idx_daily_submissions_date ON daily_submissions(submission_date DESC);
+        CREATE INDEX IF NOT EXISTS idx_daily_submissions_user_date ON daily_submissions(user_id, submission_date);
+
+        -- OTP indexes
+        CREATE INDEX IF NOT EXISTS idx_otp_email ON otp_codes(email);
+        CREATE INDEX IF NOT EXISTS idx_otp_expires ON otp_codes(expires_at);
+
+        -- Contest history indexes
+        CREATE INDEX IF NOT EXISTS idx_contest_history_user_id ON contest_history(user_id);
+        CREATE INDEX IF NOT EXISTS idx_contest_history_date ON contest_history(contest_date DESC);
+      `);
+      console.log('[DB] ✓ All indexes created successfully');
+    } catch (indexErr) {
+      console.warn('[DB] Index creation warning (non-fatal):', indexErr.message);
+    }
+
+    // 4. Superadmin Seeding
     // try {
     //   const hashedX = await bcrypt.hash('Admin@789', 12);
       
@@ -171,6 +231,9 @@ const initDB = async () => {
     // }
 
     console.log('Database initialized successfully.');
+    
+    // Reset statement timeout back to normal
+    await client.query('RESET statement_timeout');
     isDBReady = true;
   } finally {
     client.release();

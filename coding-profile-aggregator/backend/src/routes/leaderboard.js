@@ -1,5 +1,6 @@
 const express = require('express');
 const { pool } = require('../config/db');
+const { getCached, setCached } = require('../services/cacheService');
 const jwt = require('jsonwebtoken');
 
 const router = express.Router();
@@ -22,6 +23,15 @@ router.get('/', optionalAuth, async (req, res) => {
     const validSorts = ['score', 'total_problems', 'name'];
     const sortCol = validSorts.includes(sort) ? sort : 'score';
     const sortOrder = order === 'asc' ? 'ASC' : 'DESC';
+
+    // Create cache key
+    const cacheKey = `leaderboard:${sortCol}:${sortOrder}:${course || 'all'}:${section || 'all'}:${limit}:${offset}`;
+    
+    // Try cache first
+    const cached = await getCached(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
 
     let whereClause = '';
     const params = [];
@@ -68,7 +78,12 @@ router.get('/', optionalAuth, async (req, res) => {
 
     const result = await pool.query(query, params);
     const ranked = result.rows.map((row, idx) => ({ rank: parseInt(offset) + idx + 1, ...row }));
-    res.json({ leaderboard: ranked, total: ranked.length });
+    const response = { leaderboard: ranked, total: ranked.length };
+    
+    // Cache for 5 minutes
+    await setCached(cacheKey, response, 300);
+    
+    res.json(response);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

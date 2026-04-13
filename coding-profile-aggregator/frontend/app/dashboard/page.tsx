@@ -78,11 +78,19 @@ export default function DashboardPage() {
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      await api.post('/profiles/refresh-stats', {});
+      // Increase timeout for refresh operation (scrapers can take 30-60 seconds)
+      await api.post('/profiles/refresh-stats', {}, { timeout: 120000 }); // 2 minutes
       await fetchDashboard();
-      toast.success('Stats refreshed!');
-    } catch {
-      toast.error('Failed to refresh stats');
+      toast.success('Stats refreshed successfully!');
+    } catch (err: any) {
+      console.error('[Dashboard] Refresh error:', err);
+      if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+        toast.error('Refresh is taking longer than expected. Stats will update in background.');
+      } else if (err.response?.status === 503) {
+        toast.error('Backend is busy. Please try again in a moment.');
+      } else {
+        toast.error('Failed to refresh stats. Please try again.');
+      }
     } finally {
       setRefreshing(false);
     }

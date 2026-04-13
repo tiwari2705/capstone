@@ -1,12 +1,19 @@
 const express = require('express');
 const { pool } = require('../config/db');
 const { authenticate } = require('../middleware/auth');
+const { getCached, setCached } = require('../services/cacheService');
 
 const router = express.Router();
 
 // GET /api/dashboard
 router.get('/', authenticate, async (req, res) => {
   try {
+    // Try cache first
+    const cacheKey = `dashboard:${req.user.id}`;
+    const cached = await getCached(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
     const [userResult, profilesResult, statsResult, dailySubmissionsResult, contestHistoryResult] = await Promise.all([
       pool.query('SELECT id, name, email, registration_no, course, section FROM users WHERE id = $1', [req.user.id]),
       pool.query('SELECT * FROM coding_profiles WHERE user_id = $1', [req.user.id]),
@@ -201,6 +208,8 @@ router.get('/', authenticate, async (req, res) => {
       response.recentContests = contestHistory.slice(0, 5);
     }
 
+    // Cache for 10 minutes
+    await setCached(cacheKey, response, 600);
     res.json(response);
   } catch (err) {
     console.error('Dashboard error:', err);

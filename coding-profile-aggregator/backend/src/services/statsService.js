@@ -20,11 +20,12 @@
  */
 
 const axios = require('axios');
-const cheerio = require('cheerio');
 const { pool } = require('../config/db');
-const { fetchGFGStatsWithRetry } = require('./gfgScraper');
-const { fetchHackerRankStatsWithRetry } = require('./hackerRankScraper');
-const { fetchCodeChefStatsWithRetry } = require('./codechefScraper');
+const { fetchGFGStats } = require('./gfgScraper');
+const { fetchHackerRankStats } = require('./hackerRankScraper');
+const { fetchCodeChefStats } = require('./codechefScraper');
+const { delay } = require('./browserManager');
+const { deleteCached, clearPattern } = require('./cacheService');
 
 // ─── Shared axios headers ────────────────────────────────────────────────────
 
@@ -220,35 +221,6 @@ const fetchLeetCodeStats = async (username) => {
 
 // ─── Codeforces ──────────────────────────────────────────────────────────────
 
-/**
- * Fetches rating and solved problem count from the official Codeforces API.
- *
- * Two API calls run in parallel:
- *  1. user.info  → current rating, max rating, rank title
- *  2. user.status → last 10,000 submissions (we deduplicate to count unique solved)
- *
- * Why deduplicate? A user might solve the same problem 5 times.
- * We use a Set keyed by `contestId-problemIndex` to count unique problems.
- *
- * Why Promise.allSettled instead of Promise.all?
- * If submissions call fails (e.g. user has 0 submissions), we still want
- * the rating from user.info. allSettled lets both resolve independently.
- *
- * Codeforces API returns status: "FAILED" for invalid handles — we check that.
- */
-/**
- * Fetches rating and solved problem count from the official Codeforces API.
- *
- * Two API calls made SEQUENTIALLY (not parallel) to respect rate limit:
- *  1. user.info  → current rating, max rating, rank title
- *  2. user.status → last 10,000 submissions (we deduplicate to count unique solved)
- *
- * Why deduplicate? A user might solve the same problem 5 times.
- * We use a Set keyed by `contestId-problemIndex` to count unique problems.
- *
- * CRITICAL: Codeforces API rate limit is 1 request per 2 seconds.
- * We add a 2.1-second delay between calls to avoid "Call limit exceeded" errors.
- */
 const fetchCodeforcesStats = async (username) => {
   console.log(`[CF] Fetching stats for ${username}...`);
   
@@ -363,292 +335,8 @@ function getRankIcon(rank) {
   return rankIcons[rank.toLowerCase()] || '⭐';
 }
 
-// ─── GeeksforGeeks ───────────────────────────────────────────────────────────
-
-// ─── GeeksforGeeks ───────────────────────────────────────────────────────────
-
-/**
- * Fetches GFG stats using Puppeteer-based scraping.
- * 
- * WHY PUPPETEER?
- * GFG renders stats dynamically with JavaScript. The data is NOT in the static
- * HTML response, so cheerio/axios scraping returns empty values.
- * 
- * APPROACH:
- * 1. Try community API first (fast, but unreliable)
- * 2. Fall back to Puppeteer scraping (slower, but works)
- * 
- * CACHING:
- * The gfgScraper module has built-in 5-minute caching to reduce browser launches.
- * 
- * PERFORMANCE:
- * - First request: ~3-5 seconds (browser launch + page load)
- * - Cached requests: <100ms
- * - Subsequent requests (browser reused): ~1-2 seconds
- */
-const fetchGFGStats = async (username) => {
-  console.log(`[GFG] Fetching stats for ${username}...`);
-  
-  // ── Attempt 1: Community API (fast but often fails) ──────────────────────
-  try {
-    console.log(`[GFG] Trying community API...`);
-    const res = await axios.get(
-      `https://geeks-for-geeks-stats-api.vercel.app/?raw=Y&userName=${username}`,
-      { timeout: 10000 }
-    );
-    const d = res.data;
-
-    console.log(`[GFG] Community API response status:`, d.status || 'success');
-
-    // Check if API returned valid data
-    if (d.status !== 'error' && (d.totalProblemsSolved || d.codingScore)) {
-      const problems_solved = parseInt(d.totalProblemsSolved) || 0;
-      const score = parseInt(d.codingScore) || problems_solved;
-
-      const safeInt = (v) => parseInt(v) || 0;
-
-      // GFG badges based on score milestones
-      const badges = [];
-      if (score >= 1000) badges.push({ name: '1000+ Score', icon: '🏆', platform: 'gfg' });
-      if (score >= 500) badges.push({ name: '500+ Score', icon: '🥇', platform: 'gfg' });
-      if (score >= 100) badges.push({ name: '100+ Score', icon: '🥈', platform: 'gfg' });
-      if (d.currentStreak >= 30) badges.push({ name: '30 Day Streak', icon: '🔥', platform: 'gfg' });
-      if (d.currentStreak >= 7) badges.push({ name: '7 Day Streak', icon: '⚡', platform: 'gfg' });
-
-      const result = {
-        problems_solved,
-        rating: 0,
-        easy_solved: safeInt(d.School) + safeInt(d.Basic),
-        medium_solved: safeInt(d.Easy) + safeInt(d.Medium),
-        hard_solved: safeInt(d.Hard),
-        submissions: problems_solved,
-        score,
-        badges: badges.length,
-        extra: {
-          codingScore: score,
-          currentStreak: d.currentStreak || 0,
-          maxStreak: d.maxStreak || 0,
-          monthlyScore: d.monthlyScore || 0,
-          source: 'community-api',
-          badgeList: badges
-        },
-      };
-
-      console.log(`[GFG] ✓ Community API success:`, result);
-      return result;
-    }
-  } catch (apiErr) {
-    console.warn(`[GFG] Community API failed: ${apiErr.message}`);
-  }
-
-  // ── Attempt 2: Puppeteer Scraping (reliable but slower) ──────────────────
-  console.log(`[GFG] Falling back to Puppeteer scraping...`);
-  
-  try {
-    const scrapedData = await fetchGFGStatsWithRetry(username);
-    
-    if (!scrapedData) {
-      throw new Error(`Profile not found or stats not available for "${username}"`);
-    }
-
-    const problems_solved = scrapedData.problemsSolved || 0;
-    const score = scrapedData.codingScore || problems_solved;
-
-    // GFG badges based on score
-    const badges = [];
-    if (score >= 1000) badges.push({ name: '1000+ Score', icon: '🏆', platform: 'gfg' });
-    if (score >= 500) badges.push({ name: '500+ Score', icon: '🥇', platform: 'gfg' });
-    if (score >= 100) badges.push({ name: '100+ Score', icon: '🥈', platform: 'gfg' });
-
-    const result = {
-      problems_solved,
-      rating: 0,
-      easy_solved: 0,
-      medium_solved: 0,
-      hard_solved: 0,
-      submissions: problems_solved,
-      score,
-      badges: badges.length,
-      extra: {
-        codingScore: score,
-        scrapedAt: scrapedData.scrapedAt,
-        source: 'puppeteer',
-        badgeList: badges
-      },
-    };
-
-    console.log(`[GFG] ✓ Puppeteer success:`, result);
-    return result;
-
-  } catch (scrapeErr) {
-    console.error(`[GFG] ✗ Puppeteer scraping failed:`, scrapeErr.message);
-    throw new Error(`GFG fetch failed for "${username}": ${scrapeErr.message}`);
-  }
-};
-
-// ─── HackerRank ──────────────────────────────────────────────────────────────
-
-/**
- * Fetches HackerRank stats using Puppeteer-based scraping.
- * 
- * WHY PUPPETEER?
- * HackerRank doesn't have a public API. We use browser automation to extract
- * profile stats from the rendered page.
- * 
- * EXTRACTED DATA:
- * - Problems solved
- * - Badges/certificates
- * - Rank
- * 
- * CACHING:
- * Built-in 5-minute caching to reduce browser launches.
- */
-const fetchHackerRankStats = async (username) => {
-  console.log(`[HackerRank] Fetching stats for ${username}...`);
-  
-  try {
-    const scrapedData = await fetchHackerRankStatsWithRetry(username);
-    
-    if (!scrapedData) {
-      throw new Error(`Profile not found or stats not available for "${username}"`);
-    }
-
-    // HackerRank badges based on stars/certificates
-    const badges = [];
-    const badgeCount = scrapedData.badges || 0;
-    
-    if (badgeCount >= 10) badges.push({ name: '10+ Badges', icon: '🏆', platform: 'hackerrank' });
-    if (badgeCount >= 5) badges.push({ name: '5+ Badges', icon: '🥇', platform: 'hackerrank' });
-    if (badgeCount >= 1) badges.push({ name: 'Certified', icon: '⭐', platform: 'hackerrank' });
-    
-    if (scrapedData.problemsSolved >= 100) badges.push({ name: '100+ Problems', icon: '💯', platform: 'hackerrank' });
-    if (scrapedData.problemsSolved >= 50) badges.push({ name: '50+ Problems', icon: '🎯', platform: 'hackerrank' });
-
-    const result = {
-      problems_solved: scrapedData.problemsSolved || 0,
-      rating: 0,
-      easy_solved: 0,
-      medium_solved: 0,
-      hard_solved: 0,
-      submissions: scrapedData.problemsSolved || 0,
-      score: scrapedData.problemsSolved || 0,
-      badges: badges.length,
-      rank: scrapedData.rank || '',
-      extra: {
-        badges: badgeCount,
-        scrapedAt: scrapedData.scrapedAt,
-        source: 'puppeteer',
-        badgeList: badges
-      },
-    };
-
-    console.log(`[HackerRank] ✓ Success:`, result);
-    return result;
-
-  } catch (err) {
-    console.error(`[HackerRank] ✗ Error:`, err.message);
-    throw new Error(`HackerRank fetch failed for "${username}": ${err.message}`);
-  }
-};
-
-// ─── CodeChef ────────────────────────────────────────────────────────────────
-
-/**
- * Fetches CodeChef stats using Puppeteer-based scraping.
- * 
- * WHY PUPPETEER?
- * CodeChef doesn't have a public API. We use browser automation to extract
- * profile stats from the rendered page.
- * 
- * EXTRACTED DATA:
- * - Problems solved (total, fully solved, partially solved)
- * - Contest rating (current and highest)
- * - Stars/rank
- * - Badges
- * - Problem categories
- * 
- * CACHING:
- * Built-in 5-minute caching to reduce browser launches.
- */
-const fetchCodeChefStats = async (username) => {
-  console.log(`[CodeChef] Fetching stats for ${username}...`);
-  
-  try {
-    const scrapedData = await fetchCodeChefStatsWithRetry(username);
-    
-    if (!scrapedData) {
-      throw new Error(`Profile not found or stats not available for "${username}"`);
-    }
-
-    const problemsSolved = scrapedData.problemsSolved || 0;
-    const currentRating = scrapedData.currentRating || 0;
-    const highestRating = scrapedData.highestRating || currentRating;
-    const stars = scrapedData.stars || 0;
-
-    // CodeChef badges based on stars and rating
-    const badges = [];
-    
-    if (stars >= 7) badges.push({ name: '7★ Coder', icon: '🌟', platform: 'codechef' });
-    else if (stars >= 6) badges.push({ name: '6★ Coder', icon: '⭐', platform: 'codechef' });
-    else if (stars >= 5) badges.push({ name: '5★ Coder', icon: '⭐', platform: 'codechef' });
-    else if (stars >= 4) badges.push({ name: '4★ Coder', icon: '⭐', platform: 'codechef' });
-    else if (stars >= 3) badges.push({ name: '3★ Coder', icon: '⭐', platform: 'codechef' });
-    else if (stars >= 2) badges.push({ name: '2★ Coder', icon: '⭐', platform: 'codechef' });
-    else if (stars >= 1) badges.push({ name: '1★ Coder', icon: '⭐', platform: 'codechef' });
-    
-    if (currentRating >= 2500) badges.push({ name: 'Grandmaster', icon: '🏆', platform: 'codechef' });
-    else if (currentRating >= 2200) badges.push({ name: 'Master', icon: '🥇', platform: 'codechef' });
-    else if (currentRating >= 1800) badges.push({ name: 'Expert', icon: '🥈', platform: 'codechef' });
-    
-    if (problemsSolved >= 500) badges.push({ name: '500+ Problems', icon: '💯', platform: 'codechef' });
-    else if (problemsSolved >= 100) badges.push({ name: '100+ Problems', icon: '🎯', platform: 'codechef' });
-    else if (problemsSolved >= 50) badges.push({ name: '50+ Problems', icon: '✅', platform: 'codechef' });
-
-    // Get rank name based on stars
-    const rankNames = {
-      7: '7 Star',
-      6: '6 Star',
-      5: '5 Star',
-      4: '4 Star',
-      3: '3 Star',
-      2: '2 Star',
-      1: '1 Star'
-    };
-    const rank = rankNames[stars] || 'Unrated';
-
-    const result = {
-      problems_solved: problemsSolved,
-      rating: currentRating,
-      easy_solved: 0, // CodeChef doesn't categorize by difficulty in the same way
-      medium_solved: 0,
-      hard_solved: 0,
-      submissions: problemsSolved,
-      score: currentRating * 0.1, // Score contribution
-      badges: badges.length,
-      rank: rank,
-      extra: {
-        currentRating: currentRating,
-        highestRating: highestRating,
-        maxRating: highestRating,
-        stars: stars,
-        fullySolved: scrapedData.fullySolved || 0,
-        partiallySolved: scrapedData.partiallySolved || 0,
-        contestsAttended: scrapedData.contestsAttended || 0,
-        categories: scrapedData.categories || [],
-        scrapedAt: scrapedData.scrapedAt,
-        source: 'puppeteer',
-        badgeList: badges
-      },
-    };
-
-    console.log(`[CodeChef] ✓ Success:`, result);
-    return result;
-
-  } catch (err) {
-    console.error(`[CodeChef] ✗ Error:`, err.message);
-    throw new Error(`CodeChef fetch failed for "${username}": ${err.message}`);
-  }
-};
+// ─── GeeksforGeeks, HackerRank, CodeChef ────────────────────────────────────
+// These are imported from their respective scraper modules at the top of the file
 
 // ─── Orchestrator ────────────────────────────────────────────────────────────
 
@@ -774,6 +462,12 @@ const fetchAndStoreStats = async (userId, platform, username) => {
   }
 
   console.log(`[Stats] ✓ ${platform}/@${username}: ${data.problems_solved} problems, score=${data.score}`);
+  
+  // Invalidate caches for this user
+  await deleteCached(`dashboard:${userId}`);
+  await clearPattern('leaderboard:*');
+  console.log(`[Cache] Invalidated dashboard & leaderboard caches for user ${userId}`);
+  
   return data;
 };
 
@@ -794,18 +488,178 @@ const fetchAllVerifiedStats = async () => {
     return;
   }
 
-  console.log(`[Cron] Updating stats for ${result.rows.length} verified profiles...`);
+  console.log(`[Cron] Updating stats for ${result.rows.length} verified profiles SEQUENTIALLY...`);
 
-  const jobs = result.rows.map(p =>
-    fetchAndStoreStats(p.user_id, p.platform, p.username)
-      .catch(err => console.error(`[Cron] Failed ${p.platform}/@${p.username}: ${err.message}`))
-  );
+  let succeeded = 0;
+  let failed = 0;
 
-  const results = await Promise.allSettled(jobs);
-  const succeeded = results.filter(r => r.status === 'fulfilled').length;
-  const failed    = results.filter(r => r.status === 'rejected').length;
+  for (const profile of result.rows) {
+    try {
+      await fetchAndStoreStats(profile.user_id, profile.platform, profile.username);
+      succeeded++;
+      await delay(3000);
+    } catch (err) {
+      console.error(`[Cron] Failed ${profile.platform}/@${profile.username}: ${err.message}`);
+      failed++;
+    }
+  }
 
   console.log(`[Cron] Done. ${succeeded} succeeded, ${failed} failed.`);
 };
 
-module.exports = { fetchAndStoreStats, fetchAllVerifiedStats, fetchLeetCodeStats, fetchCodeforcesStats, fetchGFGStats, fetchHackerRankStats, fetchCodeChefStats };
+/**
+ * Fetches stats for all verified LeetCode profiles
+ */
+const fetchAllLeetCodeStats = async () => {
+  const result = await pool.query(
+    'SELECT user_id, username FROM coding_profiles WHERE verified = TRUE AND platform = $1',
+    ['leetcode']
+  );
+
+  if (result.rows.length === 0) {
+    console.log('[CRON-LeetCode] No verified LeetCode profiles to update.');
+    return;
+  }
+
+  console.log(`[CRON-LeetCode] Updating ${result.rows.length} LeetCode profiles...`);
+  let succeeded = 0, failed = 0;
+
+  for (const profile of result.rows) {
+    try {
+      await fetchAndStoreStats(profile.user_id, 'leetcode', profile.username);
+      succeeded++;
+      await delay(1000);
+    } catch (err) {
+      console.error(`[CRON-LeetCode] Failed @${profile.username}: ${err.message}`);
+      failed++;
+    }
+  }
+
+  console.log(`[CRON-LeetCode] Done. ${succeeded} succeeded, ${failed} failed.`);
+};
+
+/**
+ * Fetches stats for all verified Codeforces profiles
+ */
+const fetchAllCodeforcesStats = async () => {
+  const result = await pool.query(
+    'SELECT user_id, username FROM coding_profiles WHERE verified = TRUE AND platform = $1',
+    ['codeforces']
+  );
+
+  if (result.rows.length === 0) {
+    console.log('[CRON-Codeforces] No verified Codeforces profiles to update.');
+    return;
+  }
+
+  console.log(`[CRON-Codeforces] Updating ${result.rows.length} Codeforces profiles...`);
+  let succeeded = 0, failed = 0;
+
+  for (const profile of result.rows) {
+    try {
+      await fetchAndStoreStats(profile.user_id, 'codeforces', profile.username);
+      succeeded++;
+      await delay(2500);
+    } catch (err) {
+      console.error(`[CRON-Codeforces] Failed @${profile.username}: ${err.message}`);
+      failed++;
+    }
+  }
+
+  console.log(`[CRON-Codeforces] Done. ${succeeded} succeeded, ${failed} failed.`);
+};
+
+/**
+ * Fetches stats for all verified CodeChef profiles
+ */
+const fetchAllCodeChefStats = async () => {
+  const result = await pool.query(
+    'SELECT user_id, username FROM coding_profiles WHERE verified = TRUE AND platform = $1',
+    ['codechef']
+  );
+
+  if (result.rows.length === 0) {
+    console.log('[CRON-CodeChef] No verified CodeChef profiles to update.');
+    return;
+  }
+
+  console.log(`[CRON-CodeChef] Updating ${result.rows.length} CodeChef profiles...`);
+  let succeeded = 0, failed = 0;
+
+  for (const profile of result.rows) {
+    try {
+      await fetchAndStoreStats(profile.user_id, 'codechef', profile.username);
+      succeeded++;
+      await delay(2000);
+    } catch (err) {
+      console.error(`[CRON-CodeChef] Failed @${profile.username}: ${err.message}`);
+      failed++;
+    }
+  }
+
+  console.log(`[CRON-CodeChef] Done. ${succeeded} succeeded, ${failed} failed.`);
+};
+
+/**
+ * Fetches stats for all verified GeeksforGeeks profiles
+ */
+const fetchAllGFGStats = async () => {
+  const result = await pool.query(
+    'SELECT user_id, username FROM coding_profiles WHERE verified = TRUE AND platform = $1',
+    ['geeksforgeeks']
+  );
+
+  if (result.rows.length === 0) {
+    console.log('[CRON-GFG] No verified GeeksforGeeks profiles to update.');
+    return;
+  }
+
+  console.log(`[CRON-GFG] Updating ${result.rows.length} GeeksforGeeks profiles...`);
+  let succeeded = 0, failed = 0;
+
+  for (const profile of result.rows) {
+    try {
+      await fetchAndStoreStats(profile.user_id, 'geeksforgeeks', profile.username);
+      succeeded++;
+      await delay(2000);
+    } catch (err) {
+      console.error(`[CRON-GFG] Failed @${profile.username}: ${err.message}`);
+      failed++;
+    }
+  }
+
+  console.log(`[CRON-GFG] Done. ${succeeded} succeeded, ${failed} failed.`);
+};
+
+/**
+ * Fetches stats for all verified HackerRank profiles
+ */
+const fetchAllHackerRankStats = async () => {
+  const result = await pool.query(
+    'SELECT user_id, username FROM coding_profiles WHERE verified = TRUE AND platform = $1',
+    ['hackerrank']
+  );
+
+  if (result.rows.length === 0) {
+    console.log('[CRON-HackerRank] No verified HackerRank profiles to update.');
+    return;
+  }
+
+  console.log(`[CRON-HackerRank] Updating ${result.rows.length} HackerRank profiles...`);
+  let succeeded = 0, failed = 0;
+
+  for (const profile of result.rows) {
+    try {
+      await fetchAndStoreStats(profile.user_id, 'hackerrank', profile.username);
+      succeeded++;
+      await delay(2000);
+    } catch (err) {
+      console.error(`[CRON-HackerRank] Failed @${profile.username}: ${err.message}`);
+      failed++;
+    }
+  }
+
+  console.log(`[CRON-HackerRank] Done. ${succeeded} succeeded, ${failed} failed.`);
+};
+
+module.exports = { fetchAndStoreStats, fetchAllVerifiedStats, fetchLeetCodeStats, fetchCodeforcesStats, fetchGFGStats, fetchHackerRankStats, fetchCodeChefStats, fetchAllLeetCodeStats, fetchAllCodeforcesStats, fetchAllCodeChefStats, fetchAllGFGStats, fetchAllHackerRankStats };
