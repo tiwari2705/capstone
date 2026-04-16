@@ -1,12 +1,3 @@
-/**
- * populate-daily-submissions.js
- * 
- * This script generates sample daily submission data for testing the activity heatmap.
- * In production, this data would be collected from platform APIs during stats refresh.
- * 
- * Run: node populate-daily-submissions.js
- */
-
 require('dotenv').config();
 const { pool } = require('./src/config/db');
 
