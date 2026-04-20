@@ -1,6 +1,8 @@
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 
+let isDBReady = false;
+
 const pool = new Pool({ 
   connectionString: process.env.DATABASE_URL,
   max: 50, // Increased from 20 for 1000 users
@@ -183,9 +185,12 @@ const initDB = async () => {
     
     console.log('[DB] ✓ All indexes created successfully');
     console.log('Database initialized successfully.');
+    isDBReady = true;
   } finally {
     client.release();
   }
 };
 
-module.exports = { pool, initDB };
+const getIsDBReady = () => isDBReady;
+
+module.exports = { pool, initDB, getIsDBReady };
