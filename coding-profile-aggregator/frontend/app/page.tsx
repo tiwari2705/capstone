@@ -101,7 +101,7 @@ export default function Home() {
             { label: 'Codeforces',    color: '#3b82f6' },
             { label: 'GeeksforGeeks', color: '#10b981' },
             { label: 'HackerRank',    color: '#10b981' },
-            { label: 'codechef',    color: '#b25818' },
+            { label: 'CodeChef',    color: '#b25818' },
           ].map(p => (
             <span
               key={p.label}
