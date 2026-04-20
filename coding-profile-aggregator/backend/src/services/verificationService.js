@@ -21,6 +21,7 @@ const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
 const cheerio = require('cheerio');
+const { withBrowserLimit } = require('./browserManager');
 
 const LEETCODE_HEADERS = {
   'Content-Type': 'application/json',
@@ -152,53 +153,59 @@ const verifyGFG = async (username, code) => {
  * structure changes frequently.
  */
 const verifyHackerRank = async (username, code) => {
-  let browser = null;
-  let page    = null;
-  try {
-    console.log(`[Verify] Launching Puppeteer for HackerRank @${username}...`);
-    browser = await puppeteer.launch({
-      headless: 'new',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-      ],
-    });
-    page = await browser.newPage();
-    await page.setViewport({ width: 1280, height: 800 });
-    await page.setUserAgent(
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    );
+  // Fix #3 — wrap the entire browser task in the concurrency semaphore so at most
+  // MAX_CONCURRENT_BROWSERS Chromium instances can run simultaneously.
+  return withBrowserLimit(async () => {
+    let browser = null;
+    let page    = null;
+    try {
+      console.log(`[Verify] Launching Puppeteer for HackerRank @${username}...`);
+      try {
+        browser = await puppeteer.launch({
+          headless: 'new',
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+          ],
+        });
+      } catch (launchErr) {
+        console.error(`[Verify] Puppeteer launch failed for HackerRank (server may lack Chromium): ${launchErr.message}`);
+        return false;
+      }
+      page = await browser.newPage();
+      await page.setViewport({ width: 1280, height: 800 });
+      await page.setUserAgent(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      );
 
-    const url = `https://www.hackerrank.com/profile/${username}`;
-    console.log(`[Verify] Navigating to ${url}...`);
-    const response = await page.goto(url, { waitUntil: 'networkidle2', timeout: 25000 });
+      const url = `https://www.hackerrank.com/profile/${username}`;
+      console.log(`[Verify] Navigating to ${url}...`);
+      const response = await page.goto(url, { waitUntil: 'networkidle2', timeout: 25000 });
 
-    if (!response || response.status() === 404) {
-      console.warn(`[Verify] HackerRank profile not found for @${username}`);
+      if (!response || response.status() === 404) {
+        console.warn(`[Verify] HackerRank profile not found for @${username}`);
+        return false;
+      }
+
+      await new Promise(r => setTimeout(r, 2000));
+
+      const pageText = await page.evaluate(() => document.body.innerText || '');
+      const pageHTML = await page.evaluate(() => document.body.innerHTML || '');
+
+      const found = pageText.includes(code) || pageHTML.includes(code);
+      console.log(`[Verify] HackerRank code search: ${found ? '✓ FOUND' : '✗ NOT FOUND'}`);
+      return found;
+
+    } catch (err) {
+      console.error(`[Verify] HackerRank Puppeteer failed for @${username}:`, err.message);
       return false;
+    } finally {
+      if (page)    await page.close().catch(() => {});
+      if (browser) await browser.close().catch(() => {});
     }
-
-    // Wait a moment for JS-rendered content to settle
-    await new Promise(r => setTimeout(r, 2000));
-
-    // Extract all visible text from the page
-    const pageText = await page.evaluate(() => document.body.innerText || '');
-    const pageHTML = await page.evaluate(() => document.body.innerHTML || '');
-
-    // Check both visible text and raw HTML (some fields are in attributes)
-    const found = pageText.includes(code) || pageHTML.includes(code);
-    console.log(`[Verify] HackerRank code search: ${found ? '✓ FOUND' : '✗ NOT FOUND'}`);
-    return found;
-
-  } catch (err) {
-    console.error(`[Verify] HackerRank Puppeteer failed for @${username}:`, err.message);
-    return false;
-  } finally {
-    if (page)    await page.close().catch(() => {});
-    if (browser) await browser.close().catch(() => {});
-  }
+  });
 };
 
 // ─── CodeChef ────────────────────────────────────────────────────────────────
@@ -214,53 +221,59 @@ const verifyHackerRank = async (username, code) => {
  * "About Yourself" section (Edit Profile → About Yourself).
  */
 const verifyCodeChef = async (username, code) => {
-  let browser = null;
-  let page    = null;
-  try {
-    console.log(`[Verify] Launching Puppeteer for CodeChef @${username}...`);
-    browser = await puppeteer.launch({
-      headless: 'new',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-      ],
-    });
-    page = await browser.newPage();
-    await page.setViewport({ width: 1280, height: 800 });
-    await page.setUserAgent(
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    );
+  // Fix #3 — wrap in the concurrency semaphore (same as HackerRank above)
+  return withBrowserLimit(async () => {
+    let browser = null;
+    let page    = null;
+    try {
+      console.log(`[Verify] Launching Puppeteer for CodeChef @${username}...`);
+      try {
+        browser = await puppeteer.launch({
+          headless: 'new',
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+          ],
+        });
+      } catch (launchErr) {
+        console.error(`[Verify] Puppeteer launch failed for CodeChef (server may lack Chromium): ${launchErr.message}`);
+        return false;
+      }
 
-    const url = `https://www.codechef.com/users/${username}`;
-    console.log(`[Verify] Navigating to ${url}...`);
-    const response = await page.goto(url, { waitUntil: 'networkidle2', timeout: 25000 });
+      page = await browser.newPage();
+      await page.setViewport({ width: 1280, height: 800 });
+      await page.setUserAgent(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      );
 
-    if (!response || response.status() === 404) {
-      console.warn(`[Verify] CodeChef profile not found for @${username}`);
+      const url = `https://www.codechef.com/users/${username}`;
+      console.log(`[Verify] Navigating to ${url}...`);
+      const response = await page.goto(url, { waitUntil: 'networkidle2', timeout: 25000 });
+
+      if (!response || response.status() === 404) {
+        console.warn(`[Verify] CodeChef profile not found for @${username}`);
+        return false;
+      }
+
+      await new Promise(r => setTimeout(r, 2000));
+
+      const pageText = await page.evaluate(() => document.body.innerText || '');
+      const pageHTML = await page.evaluate(() => document.body.innerHTML || '');
+
+      const found = pageText.includes(code) || pageHTML.includes(code);
+      console.log(`[Verify] CodeChef code search: ${found ? '✓ FOUND' : '✗ NOT FOUND'}`);
+      return found;
+
+    } catch (err) {
+      console.error(`[Verify] CodeChef Puppeteer failed for @${username}:`, err.message);
       return false;
+    } finally {
+      if (page)    await page.close().catch(() => {});
+      if (browser) await browser.close().catch(() => {});
     }
-
-    // Wait for profile content to load
-    await new Promise(r => setTimeout(r, 2000));
-
-    // Extract all visible text from the page
-    const pageText = await page.evaluate(() => document.body.innerText || '');
-    const pageHTML = await page.evaluate(() => document.body.innerHTML || '');
-
-    // Check both visible text and raw HTML
-    const found = pageText.includes(code) || pageHTML.includes(code);
-    console.log(`[Verify] CodeChef code search: ${found ? '✓ FOUND' : '✗ NOT FOUND'}`);
-    return found;
-
-  } catch (err) {
-    console.error(`[Verify] CodeChef Puppeteer failed for @${username}:`, err.message);
-    return false;
-  } finally {
-    if (page)    await page.close().catch(() => {});
-    if (browser) await browser.close().catch(() => {});
-  }
+  });
 };
 
 // ─── Main export ─────────────────────────────────────────────────────────────

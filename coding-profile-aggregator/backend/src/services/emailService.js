@@ -9,6 +9,18 @@ const transporter = nodemailer.createTransport({
   }
 });
 
+// Fix #10 — verify SMTP connection at startup so we get clear log output
+// rather than a cryptic SMTP error on the first real OTP send.
+// This runs once when the module is first required.
+transporter.verify((err) => {
+  if (err) {
+    console.error('[Email] ✗ SMTP connection failed:', err.message);
+    console.error('[Email] Check EMAIL_USER and EMAIL_PASSWORD in your environment variables.');
+  } else {
+    console.log('[Email] ✓ SMTP connection ready — emails will be sent via', process.env.EMAIL_USER);
+  }
+});
+
 // Generate 6-digit OTP
 const generateOTP = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();

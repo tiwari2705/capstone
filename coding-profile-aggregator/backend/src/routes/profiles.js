@@ -7,6 +7,12 @@ const { getProfileUrl } = require('../utils/profileUrls');
 
 const router = express.Router();
 
+// Fix #4 — never expose raw DB errors to the client in production
+const sanitizeError = (err, defaultMsg = 'An internal server error occurred') => {
+  if (process.env.NODE_ENV === 'production') return defaultMsg;
+  return err.message || defaultMsg;
+};
+
 /**
  * Generates a verification code with only alphanumeric characters (no underscores or special chars).
  * Format: VERIFY + 6 random uppercase letters/numbers (e.g., VERIFYAB12CD)
@@ -28,8 +34,16 @@ router.post('/add-profile', authenticate, async (req, res) => {
   if (!validPlatforms.includes(platform.toLowerCase())) {
     return res.status(400).json({ error: 'Invalid platform. Use: leetcode, codeforces, geeksforgeeks, hackerrank, codechef' });
   }
+  // Fix #12 — validate username format to prevent oversized/malicious strings
+  const trimmedUsername = username.trim();
+  if (trimmedUsername.length < 1 || trimmedUsername.length > 100) {
+    return res.status(400).json({ error: 'Username must be between 1 and 100 characters' });
+  }
+  if (!/^[a-zA-Z0-9_.\-]+$/.test(trimmedUsername)) {
+    return res.status(400).json({ error: 'Username contains invalid characters. Only letters, numbers, dots, hyphens, and underscores are allowed.' });
+  }
   const verification_code = generateVerificationCode();
-  const profile_url = getProfileUrl(platform, username);
+  const profile_url = getProfileUrl(platform, trimmedUsername);
   
   try {
     const result = await pool.query(
@@ -38,14 +52,14 @@ router.post('/add-profile', authenticate, async (req, res) => {
        ON CONFLICT (user_id, platform) DO UPDATE SET 
          username = $3, profile_url = $4, verification_code = $5, verified = FALSE, updated_at = NOW()
        RETURNING *`,
-      [req.user.id, platform.toLowerCase(), username, profile_url, verification_code]
+      [req.user.id, platform.toLowerCase(), trimmedUsername, profile_url, verification_code]
     );
     res.status(201).json({
       profile: result.rows[0],
       message: `Add this code to your ${platform} profile bio/about section: ${verification_code}`
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: sanitizeError(err, 'Failed to add profile. Please try again.') });
   }
 });
 
@@ -83,7 +97,6 @@ router.post('/verify-profile', authenticate, async (req, res) => {
       });
     } catch (statsErr) {
       console.error(`[Verify] ✗ Stats fetch failed:`, statsErr.message);
-      // Still return success since verification worked, but warn about stats
       res.json({ 
         message: 'Profile verified, but stats fetch failed. Try refreshing stats manually.', 
         verified: true,
@@ -92,7 +105,7 @@ router.post('/verify-profile', authenticate, async (req, res) => {
     }
   } catch (err) {
     console.error(`[Verify] ✗ Error:`, err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: sanitizeError(err, 'Profile verification failed. Please try again.') });
   }
 });
 
@@ -105,25 +118,37 @@ router.get('/user-profiles', authenticate, async (req, res) => {
     );
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: sanitizeError(err, 'Failed to load profiles.') });
   }
 });
 
 // POST /api/profiles/refresh-stats
 router.post('/refresh-stats', authenticate, async (req, res) => {
   const { platform } = req.body;
+  
   try {
     const query = platform
       ? 'SELECT * FROM coding_profiles WHERE user_id = $1 AND platform = $2 AND verified = TRUE'
       : 'SELECT * FROM coding_profiles WHERE user_id = $1 AND verified = TRUE';
     const params = platform ? [req.user.id, platform.toLowerCase()] : [req.user.id];
     const profiles = await pool.query(query, params);
-    const results = await Promise.allSettled(
-      profiles.rows.map(p => fetchAndStoreStats(req.user.id, p.platform, p.username))
-    );
-    res.json({ message: 'Stats refreshed', updated: results.filter(r => r.status === 'fulfilled').length });
+
+    // Fix #2 — run stats fetches SEQUENTIALLY, not in parallel.
+    // Parallel fetches fire multiple Puppeteer browsers at once for HackerRank/CodeChef,
+    // which exhausts RAM on Render free tier (512MB). Sequential is slower but stable.
+    let updated = 0;
+    for (const p of profiles.rows) {
+      try {
+        await fetchAndStoreStats(req.user.id, p.platform, p.username);
+        updated++;
+      } catch (statErr) {
+        console.error(`[refresh-stats] Failed ${p.platform}/@${p.username}: ${statErr.message}`);
+      }
+    }
+
+    res.json({ message: 'Stats refreshed successfully', updated });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: sanitizeError(err, 'Failed to refresh stats. Please try again.') });
   }
 });
 
@@ -153,7 +178,7 @@ router.delete('/delete-profile', authenticate, async (req, res) => {
 
     res.json({ message: `${platform} profile deleted successfully` });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: sanitizeError(err, 'Failed to delete profile. Please try again.') });
   }
 });
 
@@ -193,7 +218,7 @@ router.patch('/update-username', authenticate, async (req, res) => {
       message: `Username updated. New verification code: ${verification_code}`
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: sanitizeError(err, 'Failed to update username. Please try again.') });
   }
 });
 

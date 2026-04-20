@@ -425,20 +425,32 @@ const fetchAndStoreStats = async (userId, platform, username) => {
   if (platform === 'leetcode' && data.extra?.dailySubmissions) {
     console.log(`[Stats] Storing daily submissions for ${platform}/@${username}...`);
     const dailySubs = data.extra.dailySubmissions;
-    
-    for (const [timestamp, count] of Object.entries(dailySubs)) {
-      const date = new Date(parseInt(timestamp) * 1000);
-      const dateStr = date.toISOString().split('T')[0];
-      
+    const entries = Object.entries(dailySubs);
+
+    if (entries.length > 0) {
+      // Fix #6 — bulk upsert all days in a SINGLE query instead of N sequential inserts.
+      // A typical user has 365+ days; the old loop issued 365+ individual DB round-trips
+      // per user. With 1000 users this was 365,000+ queries on the nightly cron.
+      //
+      // We build a multi-row VALUES clause and send it as one parameterised query.
+      // Postgres supports up to 65535 parameters; 365 days × 4 cols = 1460 params — safe.
+      const paramValues = [];
+      const placeholders = entries.map(([timestamp, count], idx) => {
+        const date = new Date(parseInt(timestamp) * 1000).toISOString().split('T')[0];
+        const base = idx * 4;
+        paramValues.push(userId, date, platform, parseInt(count));
+        return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4})`;
+      });
+
       await pool.query(
         `INSERT INTO daily_submissions (user_id, submission_date, platform, count)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (user_id, submission_date, platform) 
+         VALUES ${placeholders.join(',')}
+         ON CONFLICT (user_id, submission_date, platform)
          DO UPDATE SET count = EXCLUDED.count`,
-        [userId, dateStr, platform, parseInt(count)]
+        paramValues
       );
+      console.log(`[Stats] ✓ Bulk-upserted ${entries.length} days of submissions in 1 query`);
     }
-    console.log(`[Stats] ✓ Stored ${Object.keys(dailySubs).length} days of submissions`);
   }
 
   // For other platforms (Codeforces, GFG, HackerRank): Track activity based on problem count changes

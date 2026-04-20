@@ -3,27 +3,16 @@ const bcrypt = require('bcryptjs');
 
 const pool = new Pool({ 
   connectionString: process.env.DATABASE_URL,
-  max: 20,                      // Max connections (was ~10 default)
-  idleTimeoutMillis: 30000,     // Close idle connections after 30s
-  connectionTimeoutMillis: 5000, // Timeout for acquiring connection
-  statement_timeout: 60000,     // Kill long-running queries after 60s
-  query_timeout: 60000          // Kill queries after 60s
+  max: 50, // Increased from 20 for 1000 users
+  min: 10, // Keep minimum connections alive
+  idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
+  connectionTimeoutMillis: 10000, // Return an error after 10 seconds if connection could not be established
+  statement_timeout: 30000, // 30 second timeout for queries
 });
-
-// Monitor pool errors
-pool.on('error', (err, client) => {
-  console.error('[DB Pool] Unexpected error:', err);
-  process.exit(-1);
-});
-
-let isDBReady = false;
 
 const initDB = async () => {
-  // Create a client with longer timeout for initialization
   const client = await pool.connect();
   try {
-    // Set longer timeout for initial setup queries
-    await client.query('SET statement_timeout = 300000'); // 5 minutes for init
     // 1. Basic Table setup
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
@@ -102,6 +91,15 @@ const initDB = async () => {
         new_rating INTEGER,
         created_at TIMESTAMP DEFAULT NOW()
       );
+
+      CREATE TABLE IF NOT EXISTS user_refresh_logs (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        registration_no VARCHAR(100) NOT NULL,
+        last_refresh_at TIMESTAMP DEFAULT NOW(),
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(user_id)
+      );
     `);
 
     // 2. Safe Migrations
@@ -161,83 +159,33 @@ const initDB = async () => {
       console.warn('Migration warning (non-fatal):', migErr.message);
     }
 
-    // 3. Create Indexes for Performance
     console.log('[DB] Creating indexes for performance...');
-    try {
-      await client.query(`
-        -- User indexes
-        CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-        CREATE INDEX IF NOT EXISTS idx_users_registration_no ON users(registration_no);
-        CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
-        CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
-
-        -- Stats indexes
-        CREATE INDEX IF NOT EXISTS idx_stats_user_id ON stats(user_id);
-        CREATE INDEX IF NOT EXISTS idx_stats_platform ON stats(platform);
-        CREATE INDEX IF NOT EXISTS idx_stats_rating ON stats(rating DESC);
-        CREATE INDEX IF NOT EXISTS idx_stats_problems ON stats(problems_solved DESC);
-        CREATE INDEX IF NOT EXISTS idx_stats_score ON stats(score DESC);
-        CREATE INDEX IF NOT EXISTS idx_stats_user_platform ON stats(user_id, platform);
-        CREATE INDEX IF NOT EXISTS idx_stats_last_updated ON stats(last_updated DESC);
-
-        -- Coding profiles indexes
-        CREATE INDEX IF NOT EXISTS idx_coding_profiles_user_id ON coding_profiles(user_id);
-        CREATE INDEX IF NOT EXISTS idx_coding_profiles_verified ON coding_profiles(verified);
-        CREATE INDEX IF NOT EXISTS idx_coding_profiles_platform ON coding_profiles(platform);
-        CREATE INDEX IF NOT EXISTS idx_coding_profiles_user_platform ON coding_profiles(user_id, platform);
-
-        -- Daily submissions indexes
-        CREATE INDEX IF NOT EXISTS idx_daily_submissions_user_id ON daily_submissions(user_id);
-        CREATE INDEX IF NOT EXISTS idx_daily_submissions_date ON daily_submissions(submission_date DESC);
-        CREATE INDEX IF NOT EXISTS idx_daily_submissions_user_date ON daily_submissions(user_id, submission_date);
-
-        -- OTP indexes
-        CREATE INDEX IF NOT EXISTS idx_otp_email ON otp_codes(email);
-        CREATE INDEX IF NOT EXISTS idx_otp_expires ON otp_codes(expires_at);
-
-        -- Contest history indexes
-        CREATE INDEX IF NOT EXISTS idx_contest_history_user_id ON contest_history(user_id);
-        CREATE INDEX IF NOT EXISTS idx_contest_history_date ON contest_history(contest_date DESC);
-      `);
-      console.log('[DB] ✓ All indexes created successfully');
-    } catch (indexErr) {
-      console.warn('[DB] Index creation warning (non-fatal):', indexErr.message);
-    }
-
-    // 4. Superadmin Seeding
-    // try {
-    //   const hashedX = await bcrypt.hash('Admin@789', 12);
-      
-    //   const admins = [
-    //     { name: 'Root Admin X', user: 'admin_x', email: 'admin_x@codequest.app', pass: hashedX, reg: 'ADMIN_X_01' },
-    //     { name: 'Root Admin Y', user: 'admin_y', email: 'admin_y@codequest.app', pass: hashedX, reg: 'ADMIN_Y_02' }
-    //   ];
-
-    //   for (const admin of admins) {
-    //     await client.query(
-    //       `INSERT INTO users (name, username, email, password, registration_no, role, email_verified) 
-    //        VALUES ($1, $2, $3, $4, $5, 'admin', TRUE) 
-    //        ON CONFLICT (email) DO UPDATE SET 
-    //          registration_no = EXCLUDED.registration_no,
-    //          password = EXCLUDED.password,
-    //          role = 'admin',
-    //          email_verified = TRUE`,
-    //       [admin.name, admin.user, admin.email, admin.pass, admin.reg]
-    //     );
-    //   }
-    //   console.log('Synchronized 2 fresh admin accounts (X and Y).');
-    // } catch (seedErr) {
-    //   console.warn('Seeding warning (non-fatal):', seedErr.message);
-    // }
-
-    console.log('Database initialized successfully.');
     
-    // Reset statement timeout back to normal
-    await client.query('RESET statement_timeout');
-    isDBReady = true;
+    // Create indexes for better query performance
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_coding_profiles_user_id ON coding_profiles(user_id);
+      CREATE INDEX IF NOT EXISTS idx_coding_profiles_verified ON coding_profiles(verified);
+      CREATE INDEX IF NOT EXISTS idx_coding_profiles_user_verified ON coding_profiles(user_id, verified);
+      CREATE INDEX IF NOT EXISTS idx_stats_user_id ON stats(user_id);
+      CREATE INDEX IF NOT EXISTS idx_stats_platform ON stats(platform);
+      CREATE INDEX IF NOT EXISTS idx_stats_user_platform ON stats(user_id, platform);
+      CREATE INDEX IF NOT EXISTS idx_stats_user_platform_updated ON stats(user_id, platform, last_updated);
+      CREATE INDEX IF NOT EXISTS idx_daily_submissions_user_date ON daily_submissions(user_id, submission_date);
+      CREATE INDEX IF NOT EXISTS idx_daily_submissions_date ON daily_submissions(submission_date);
+      CREATE INDEX IF NOT EXISTS idx_contest_history_user_id ON contest_history(user_id);
+      CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+      CREATE INDEX IF NOT EXISTS idx_users_registration_no ON users(registration_no);
+      CREATE INDEX IF NOT EXISTS idx_users_course_section ON users(course, section);
+      CREATE INDEX IF NOT EXISTS idx_users_year_course ON users(year_of_passing, course);
+      CREATE INDEX IF NOT EXISTS idx_users_active ON users(id) WHERE email_verified = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+    `);
+    
+    console.log('[DB] ✓ All indexes created successfully');
+    console.log('Database initialized successfully.');
   } finally {
     client.release();
   }
 };
 
-module.exports = { pool, initDB, getIsDBReady: () => isDBReady };
+module.exports = { pool, initDB };

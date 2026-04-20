@@ -1,7 +1,14 @@
 const express = require('express');
 const { pool } = require('../config/db');
+const { getCached, setCached } = require('../services/cacheService');
 
 const router = express.Router();
+
+// Fix #3/#9 — never expose raw DB errors in production
+const sanitizeError = (err, defaultMsg = 'An internal server error occurred') => {
+  if (process.env.NODE_ENV === 'production') return defaultMsg;
+  return err.message || defaultMsg;
+};
 
 /**
  * GET /api/profile/:identifier
@@ -18,10 +25,18 @@ const router = express.Router();
 router.get('/:identifier', async (req, res) => {
   try {
     const { identifier } = req.params;
-    
+
+    // Fix #13 — cache public profiles for 5 minutes.
+    // Public profiles can be shared as links and hit by many visitors simultaneously.
+    // Without caching, each visit runs 8+ DB queries including heavy ranking subqueries.
+    const cacheKey = `public-profile:${identifier.toLowerCase()}`;
+    const cached = await getCached(cacheKey);
+    if (cached) return res.json(cached);
+
     // Find user by username, email, or registration_no
+    // Fix #3 — do NOT select email from this public query; it must not appear in the response.
     const userResult = await pool.query(
-      `SELECT id, name, email, registration_no, course, section, username, created_at 
+      `SELECT id, name, registration_no, course, section, username, created_at 
        FROM users 
        WHERE username = $1 OR email = $1 OR registration_no = $1`,
       [identifier]
@@ -33,9 +48,10 @@ router.get('/:identifier', async (req, res) => {
 
     const user = userResult.rows[0];
 
-    // Fetch all profiles (including unverified for completeness)
+    // Fix #9 — use explicit column list; SELECT * returns verification_code which
+    // is a private token. Only include columns the public needs to see.
     const profilesResult = await pool.query(
-      'SELECT * FROM coding_profiles WHERE user_id = $1',
+      'SELECT id, platform, username, profile_url, verified FROM coding_profiles WHERE user_id = $1',
       [user.id]
     );
 
@@ -197,11 +213,11 @@ router.get('/:identifier', async (req, res) => {
     // Calculate rankings
     const rankings = await calculateRankings(user.id, user.course, user.section, totalProblems);
 
-    // Build response
+    // Fix #3 — build the public user object without email.
+    // Email is PII and must not be exposed to anonymous visitors.
     const response = { 
       user: {
         name: user.name,
-        email: user.email,
         registration_no: user.registration_no,
         course: user.course,
         section: user.section,
@@ -239,10 +255,12 @@ router.get('/:identifier', async (req, res) => {
       response.recentContests = contestHistory.slice(0, 5);
     }
 
+    // Fix #13 — cache the full response for 5 minutes before sending.
+    await setCached(cacheKey, response, 300);
     res.json(response);
   } catch (err) {
     console.error('Public profile error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: sanitizeError(err, 'Failed to load profile.') });
   }
 });
 

@@ -5,6 +5,12 @@ const jwt = require('jsonwebtoken');
 
 const router = express.Router();
 
+// Fix #4 — never expose raw DB errors to the client in production
+const sanitizeError = (err, defaultMsg = 'An internal server error occurred') => {
+  if (process.env.NODE_ENV === 'production') return defaultMsg;
+  return err.message || defaultMsg;
+};
+
 // Optional auth middleware — attaches user if token present, but doesn't block
 const optionalAuth = (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -85,7 +91,7 @@ router.get('/', optionalAuth, async (req, res) => {
     
     res.json(response);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: sanitizeError(err, 'Failed to load leaderboard.') });
   }
 });
 

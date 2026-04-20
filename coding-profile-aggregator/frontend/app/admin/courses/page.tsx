@@ -187,7 +187,7 @@ export default function CoursesPage() {
               {courseData.sectionBreakdown.map((section) => (
                 <div
                   key={section.section}
-                  className="stat-card stat-card-purple p-5 group cursor-pointer"
+                  className="stat-card stat-card-purple p-5 group"
                 >
                   <div className="flex items-center justify-between mb-4">
                     <div className="bg-white/10 px-3 py-1 rounded-lg">

@@ -5,6 +5,12 @@ const { getCached, setCached } = require('../services/cacheService');
 
 const router = express.Router();
 
+// Fix #4 — never expose raw DB errors to the client in production
+const sanitizeError = (err, defaultMsg = 'An internal server error occurred') => {
+  if (process.env.NODE_ENV === 'production') return defaultMsg;
+  return err.message || defaultMsg;
+};
+
 // GET /api/dashboard
 router.get('/', authenticate, async (req, res) => {
   try {
@@ -213,7 +219,7 @@ router.get('/', authenticate, async (req, res) => {
     res.json(response);
   } catch (err) {
     console.error('Dashboard error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: sanitizeError(err, 'Failed to load dashboard data.') });
   }
 });
 

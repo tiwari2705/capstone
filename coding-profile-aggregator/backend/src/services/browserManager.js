@@ -2,6 +2,18 @@ const puppeteer = require('puppeteer');
 
 let browserInstance = null;
 let browserPromise = null;
+let browserPageCount = 0;
+
+// ─── Fix #3: Puppeteer Concurrency Semaphore ───────────────────────────────
+// Limits the number of simultaneous Puppeteer browser instances to prevent
+// OOM crashes on memory-constrained hosts (e.g. Render free tier, 512MB RAM).
+// verificationService.js MUST call withBrowserLimit() around every browser task.
+const MAX_CONCURRENT_BROWSERS = 1;
+let activeBrowserTasks = 0;
+
+// ─── Fix: Browser Recycling ───────────────────────────────────────────────
+// Restart browser after N pages to prevent memory leaks
+const MAX_PAGES_BEFORE_RESTART = 50; // Restart after 50 pages
 
 const BROWSER_CONFIG = {
   headless: 'new',
@@ -57,6 +69,13 @@ async function getBrowser() {
 }
 
 async function createPage() {
+  // Recycle browser if too many pages have been created
+  if (browserPageCount >= MAX_PAGES_BEFORE_RESTART) {
+    console.log(`[Browser] Recycling browser after ${browserPageCount} pages`);
+    await closeBrowser();
+    browserPageCount = 0;
+  }
+
   const browser = await getBrowser();
   const page = await browser.newPage();
   await page.setUserAgent(USER_AGENT);
@@ -65,6 +84,9 @@ async function createPage() {
   
   // Disable unnecessary features to improve stability
   await page.setRequestInterception(false);
+  
+  browserPageCount++;
+  console.log(`[Browser] Created page ${browserPageCount}/${MAX_PAGES_BEFORE_RESTART}`);
   
   return page;
 }
@@ -102,16 +124,64 @@ async function closeBrowser() {
     if (browserInstance && browserInstance.isConnected()) {
       await browserInstance.close();
       browserInstance = null;
+      browserPageCount = 0; // Reset counter
       console.log('[Browser] Closed successfully');
     }
   } catch (error) {
     console.error('[Browser] Error closing browser:', error.message);
     browserInstance = null;
+    browserPageCount = 0;
   }
 }
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Fix #3 — Semaphore wrapper for Puppeteer browser tasks.
+ *
+ * Ensures at most MAX_CONCURRENT_BROWSERS Chromium instances run at the same
+ * time. If the limit is already reached, the caller waits (polling every 500ms)
+ * until a slot opens up.
+ *
+ * Usage in verificationService.js:
+ *   const result = await withBrowserLimit(async () => {
+ *     const browser = await puppeteer.launch(...);
+ *     // ... do work ...
+ *     await browser.close();
+ *     return result;
+ *   });
+ */
+async function withBrowserLimit(fn) {
+  const POLL_INTERVAL_MS = 500;
+  const MAX_WAIT_MS = 120000; // 2-minute maximum wait time
+  let waited = 0;
+
+  while (activeBrowserTasks >= MAX_CONCURRENT_BROWSERS) {
+    if (waited >= MAX_WAIT_MS) {
+      throw new Error(
+        `[BrowserLimit] Timed out after ${MAX_WAIT_MS / 1000}s waiting for a browser slot. ` +
+        'Too many concurrent verifications — please try again in a moment.'
+      );
+    }
+    console.log(
+      `[BrowserLimit] Slot full (${activeBrowserTasks}/${MAX_CONCURRENT_BROWSERS} active). ` +
+      `Waiting ${POLL_INTERVAL_MS}ms... (${waited}ms elapsed)`
+    );
+    await delay(POLL_INTERVAL_MS);
+    waited += POLL_INTERVAL_MS;
+  }
+
+  activeBrowserTasks++;
+  console.log(`[BrowserLimit] Slot acquired (${activeBrowserTasks}/${MAX_CONCURRENT_BROWSERS} active).`);
+
+  try {
+    return await fn();
+  } finally {
+    activeBrowserTasks--;
+    console.log(`[BrowserLimit] Slot released (${activeBrowserTasks}/${MAX_CONCURRENT_BROWSERS} active).`);
+  }
 }
 
 async function retry(fn, maxAttempts = 2, delayMs = 5000) {
@@ -151,5 +221,7 @@ module.exports = {
   closePage,
   closeBrowser,
   delay,
-  retry
+  retry,
+  withBrowserLimit,
 };
+

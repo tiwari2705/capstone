@@ -1,9 +1,25 @@
 require('dotenv').config();
+
+// ─── Startup environment validation ─────────────────────────────────────────
+// Fail FAST and clearly rather than silently using undefined secrets.
+// Fix #5/10 — NODE_ENV, EMAIL_USER and EMAIL_PASSWORD are now required.
+// Without NODE_ENV: sanitizeError() never activates, raw DB errors leak to clients.
+// Without EMAIL_*: server starts 'successfully' but all signup/password-reset
+//   flows throw 502 errors on the very first OTP send.
+const REQUIRED_ENV = ['JWT_SECRET', 'DATABASE_URL', 'NODE_ENV', 'EMAIL_USER', 'EMAIL_PASSWORD'];
+const missingEnv = REQUIRED_ENV.filter(k => !process.env[k]);
+if (missingEnv.length > 0) {
+  console.error(`[FATAL] Missing required environment variables: ${missingEnv.join(', ')}`);
+  console.error('[FATAL] Set these in your .env file or deployment platform, then restart.');
+  process.exit(1);
+}
+
 const express = require('express');
 const cors = require('cors');
 const compression = require('compression');
+const axios = require('axios'); // Fix #27 — moved from inside setInterval callback
 const { initDB, getIsDBReady } = require('./config/db');
-const { limiter, authLimiter } = require('./middleware/rateLimiting');
+const { limiter, authLimiter, adminLimiter } = require('./middleware/rateLimiting');
 const authRoutes = require('./routes/auth');
 const profileRoutes = require('./routes/profiles');
 const dashboardRoutes = require('./routes/dashboard');
@@ -31,7 +47,25 @@ app.use(cors({
   }, 
   credentials: true 
 }));
-app.use(express.json());
+
+// Fix #7 — explicit body size limit prevents DoS via oversized payloads.
+// Default Express limit is 100kb but unspecified — making it explicit and tighter.
+app.use(express.json({ limit: '10kb' }));
+app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+
+// ─── Request Timeout Protection ─────────────────────────────────────────────
+// Prevent requests from hanging indefinitely
+app.use((req, res, next) => {
+  // Set timeout for request and response
+  req.setTimeout(30000, () => {
+    console.error(`[Timeout] Request timeout: ${req.method} ${req.path}`);
+    res.status(408).json({ error: 'Request timeout' });
+  });
+  res.setTimeout(30000, () => {
+    console.error(`[Timeout] Response timeout: ${req.method} ${req.path}`);
+  });
+  next();
+});
 
 // Performance Middlewares
 app.use(compression({
@@ -43,6 +77,7 @@ app.use(compression({
 }));
 
 // Rate Limiting
+app.use('/api/admin', adminLimiter); // More lenient for admin routes
 app.use('/api/', limiter);
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/signup', authLimiter);
@@ -63,12 +98,54 @@ app.use('/api/leaderboard', leaderboardRoutes);
 app.use('/api/profile', publicProfileRoutes); // Public profile route
 app.use('/api/admin', adminRoutes); // Admin routes
 
-app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+app.get('/api/health', async (req, res) => {
+  const health = {
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    memory: {
+      used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+      total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
+      rss: Math.round(process.memoryUsage().rss / 1024 / 1024),
+    },
+    database: 'unknown',
+  };
 
-// Global error handler
+  // Check database connection
+  try {
+    await pool.query('SELECT 1');
+    health.database = 'connected';
+  } catch (err) {
+    health.database = 'disconnected';
+    health.status = 'degraded';
+  }
+
+  const statusCode = health.status === 'ok' ? 200 : 503;
+  res.status(statusCode).json(health);
+});
+
+// Global error handler with better logging
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+  // Log error with context
+  console.error('[Error]', {
+    message: err.message,
+    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+    method: req.method,
+    path: req.path,
+    ip: req.ip,
+    timestamp: new Date().toISOString(),
+  });
+
+  // Send appropriate error response
+  const statusCode = err.status || err.statusCode || 500;
+  const message = process.env.NODE_ENV === 'production' 
+    ? 'Internal server error' 
+    : err.message || 'Internal server error';
+
+  res.status(statusCode).json({ 
+    error: message,
+    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+  });
 });
 
 // Environment Validation Logs
@@ -92,7 +169,6 @@ const server = app.listen(PORT, () => {
       console.log(`[Keep-Alive] Starting self-ping for: ${BACKEND_URL}`);
       setInterval(async () => {
         try {
-          const axios = require('axios');
           await axios.get(`${BACKEND_URL}/api/health`);
           console.log('[Keep-Alive] Self-ping successful');
         } catch (err) {

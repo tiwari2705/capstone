@@ -7,6 +7,16 @@ const { requireAdmin, requireSuperAdmin } = require('../middleware/adminAuth');
 const router = express.Router();
 router.use(authenticate, requireAdmin);
 
+// Fix #5 — raw error details only in development
+const sanitizeError = (err, defaultMsg = 'An internal server error occurred') => {
+  if (process.env.NODE_ENV === 'production') return defaultMsg;
+  return err.message || defaultMsg;
+};
+
+// Fix #14 — prevent unbounded queries
+const clampLimit = (val, max = 500, defaultVal = 50) => Math.min(Math.max(parseInt(val) || defaultVal, 1), max);
+
+
 // GET /api/admin/stats
 router.get('/stats', async (req, res) => {
   try {
@@ -30,9 +40,10 @@ router.get('/stats', async (req, res) => {
     });
   } catch (err) {
     console.error('Admin stats error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: sanitizeError(err, 'Failed to load admin stats.') });
   }
 });
+
 
 
 
@@ -41,6 +52,9 @@ router.get('/stats', async (req, res) => {
 router.get('/users', async (req, res) => {
   try {
     const { course, section, year_of_passing, search, sort = 'name', order = 'asc', limit = 50, offset = 0 } = req.query;
+    const safeLimit = clampLimit(limit, 500, 50);
+    const safeOffset = Math.max(parseInt(offset) || 0, 0);
+
     
     let whereClause = '';
     const params = [];
@@ -54,7 +68,8 @@ router.get('/users', async (req, res) => {
     const sortColumn = validSorts.includes(sort) ? sort : 'name';
     const sortOrder = order === 'desc' ? 'DESC' : 'ASC';
     
-    params.push(parseInt(limit), parseInt(offset));
+    params.push(safeLimit, safeOffset);
+
     
     // EXACT SAME SQL AS PUBLIC LEADERBOARD
     const query = `
@@ -89,23 +104,24 @@ router.get('/users', async (req, res) => {
       ORDER BY u.${sortColumn} ${sortOrder}
       LIMIT $${params.length - 1} OFFSET $${params.length}
     `;
-    
+
     const result = await pool.query(query, params);
-    
+
     const countQuery = `SELECT COUNT(*) as total FROM users u WHERE u.role = 'user' ${whereClause}`;
     const countResult = await pool.query(countQuery, params.slice(0, -2));
-    
-    res.json({ 
-      users: result.rows, 
-      total: parseInt(countResult.rows[0].total), 
-      limit: parseInt(limit), 
-      offset: parseInt(offset) 
+
+    res.json({
+      users: result.rows,
+      total: parseInt(countResult.rows[0].total),
+      limit: safeLimit,
+      offset: safeOffset,
     });
   } catch (err) {
     console.error('Admin users list error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: sanitizeError(err, 'Failed to load users.') });
   }
 });
+
 
 // GET /api/admin/users/:id - ADMIN AUDIT PROFILE
 router.get('/users/:id', async (req, res) => {
@@ -190,9 +206,10 @@ router.get('/users/:id', async (req, res) => {
     });
   } catch (err) {
     console.error('Admin user profile error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: sanitizeError(err, 'Failed to load user profile.') });
   }
 });
+
 
 
 // GET /api/admin/section/:section
@@ -242,9 +259,10 @@ router.get('/section/:section', async (req, res) => {
     res.json({ section, stats: sectionStats, students: result.rows });
   } catch (err) {
     console.error('Admin section view error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: sanitizeError(err, 'Failed to load section data.') });
   }
 });
+
 
 // GET /api/admin/course/:course
 router.get('/course/:course', async (req, res) => {
@@ -304,14 +322,17 @@ router.get('/course/:course', async (req, res) => {
     res.json({ course, stats: courseStats, sectionBreakdown, students: result.rows });
   } catch (err) {
     console.error('Admin course view error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: sanitizeError(err, 'Failed to load course data.') });
   }
 });
+
 
 // GET /api/admin/leaderboard
 router.get('/leaderboard', async (req, res) => {
   try {
     const { course, section, metric = 'score', limit = 100 } = req.query;
+    const safeLimit = clampLimit(limit, 500, 100);
+
     
     let whereClause = '';
     const params = [];
@@ -356,16 +377,17 @@ router.get('/leaderboard', async (req, res) => {
       ORDER BY ${metric === 'problems' ? 'total_problems' : metric === 'rating' ? 'avg_rating' : 'total_score'} DESC
       LIMIT $${params.length}
     `;
-    
+
     const result = await pool.query(query, params);
     const rankedLeaderboard = result.rows.map((row, index) => ({ ...row, rank: index + 1 }));
-    
+
     res.json({ leaderboard: rankedLeaderboard, filters: { course, section, metric }, total: rankedLeaderboard.length });
   } catch (err) {
     console.error('Admin leaderboard error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: sanitizeError(err, 'Failed to load leaderboard.') });
   }
 });
+
 
 // Other admin routes (admins, create-admin, sync-stats, etc.)
 router.get('/admins', requireSuperAdmin, async (req, res) => {
@@ -374,9 +396,10 @@ router.get('/admins', requireSuperAdmin, async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error('List admins error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: sanitizeError(err, 'Failed to list admins.') });
   }
 });
+
 
 router.post('/create-admin', requireSuperAdmin, async (req, res) => {
   try {
@@ -390,9 +413,10 @@ router.post('/create-admin', requireSuperAdmin, async (req, res) => {
     res.status(201).json({ message: 'Admin created successfully', admin: result.rows[0] });
   } catch (err) {
     console.error('Create admin error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: sanitizeError(err, 'Failed to create admin.') });
   }
 });
+
 
 router.post('/sync-stats', async (req, res) => {
   try {
@@ -401,80 +425,156 @@ router.post('/sync-stats', async (req, res) => {
     fetchAllVerifiedStats().catch(err => console.error('[Admin Sync] Error:', err.message));
   } catch (err) {
     console.error('Sync stats error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: sanitizeError(err, 'Failed to start sync.') });
   }
 });
 
-module.exports = router;
 
-
-// GET /api/admin/users/:identifier
-router.get('/users/:identifier', async (req, res) => {
+// GET /api/admin/language-filter - Filter students by programming language
+router.get('/language-filter', async (req, res) => {
   try {
-    const { identifier } = req.params;
-    const userResult = await pool.query('SELECT id, name, email, registration_no, course, section, year_of_passing, role, created_at FROM users WHERE registration_no = $1 OR email = $1 OR id::text = $1', [identifier]);
-    if (userResult.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+    console.log('[Language Filter] Request received:', req.query);
     
-    const user = userResult.rows[0];
-    const profilesResult = await pool.query('SELECT * FROM coding_profiles WHERE user_id = $1', [user.id]);
-    const statsResult = await pool.query('SELECT * FROM stats WHERE user_id = $1', [user.id]);
+    const { language, minQuestions, course, year_of_passing } = req.query;
     
-    const statsMap = {};
-    statsResult.rows.forEach(s => { statsMap[s.platform] = s; });
+    // Build WHERE clause based on filters
+    let whereClause = "u.role = 'user'";
+    const queryParams = [];
     
-    // Calculate using SQL
-    const calcResult = await pool.query(`
-      SELECT
-        (COALESCE(lc.problems_solved, 0) + COALESCE(cf.problems_solved, 0) + COALESCE(gfg.problems_solved, 0) + COALESCE(hr.problems_solved, 0) + COALESCE(cc.problems_solved, 0)) AS total_problems,
-        ROUND(
-          COALESCE(lc.problems_solved, 0) * 1.0 +
-          COALESCE(cf.rating, 0) * 0.1 +
-          COALESCE(gfg.problems_solved, 0) * 1.0 +
-          COALESCE(hr.problems_solved, 0) * 1.0 +
-          COALESCE(cc.rating, 0) * 0.1,
-          2
-        ) AS total_score
+    if (course) {
+      queryParams.push(course);
+      whereClause += ` AND u.course = $${queryParams.length}`;
+    }
+
+    if (year_of_passing) {
+      queryParams.push(parseInt(year_of_passing));
+      whereClause += ` AND u.year_of_passing = $${queryParams.length}`;
+    }
+    
+    // Query all users with their LeetCode stats
+    const result = await pool.query(`
+      SELECT 
+        u.id,
+        u.name,
+        u.registration_no,
+        u.course,
+        u.section,
+        u.email,
+        u.year_of_passing,
+        s.extra_data
       FROM users u
-      LEFT JOIN stats lc ON lc.user_id = u.id AND lc.platform = 'leetcode'
-      LEFT JOIN stats cf ON cf.user_id = u.id AND cf.platform = 'codeforces'
-      LEFT JOIN stats gfg ON gfg.user_id = u.id AND gfg.platform = 'geeksforgeeks'
-      LEFT JOIN stats hr ON hr.user_id = u.id AND hr.platform = 'hackerrank'
-      LEFT JOIN stats cc ON cc.user_id = u.id AND cc.platform = 'codechef'
-      WHERE u.id = $1
-    `, [user.id]);
+      LEFT JOIN stats s ON u.id = s.user_id AND s.platform = 'leetcode'
+      WHERE ${whereClause}
+      ORDER BY u.name
+    `, queryParams);
     
-    const totalProblems = parseInt(calcResult.rows[0]?.total_problems || 0);
-    const totalScore = parseFloat(calcResult.rows[0]?.total_score || 0);
+    console.log(`[Language Filter] Found ${result.rows.length} users`);
     
-    // Calculate rankings
-    const rankings = await calculateRankings(user.id, user.course, user.section, totalProblems);
+    // Extract language data from extra_data
+    const students = result.rows.map(row => {
+      const languageData = row.extra_data?.languageData || [];
+      const languageMap = {};
+      languageData.forEach(lang => {
+        languageMap[lang.name] = lang.count;
+      });
+      
+      return {
+        id: row.id,
+        name: row.name,
+        registration_no: row.registration_no,
+        course: row.course,
+        section: row.section,
+        email: row.email,
+        year_of_passing: row.year_of_passing,
+        languages: languageMap
+      };
+    });
     
-    res.json({ user, profiles: profilesResult.rows, stats: statsMap, totalProblems, score: totalScore, rankings });
-  } catch (err) {
-    console.error('Admin user detail error:', err);
-    res.status(500).json({ error: err.message });
+    console.log(`[Language Filter] Processed ${students.length} students`);
+    
+// Filter by language and minimum questions
+    const minQuestionsNum = parseInt(minQuestions) || 0;
+    const filteredStudents = students.filter(student => {
+      if (!language && minQuestionsNum === 0) {
+        return true;
+      }
+
+      const count = language
+        ? student.languages[language] || 0
+        : Object.values(student.languages).reduce((sum, value) => sum + value, 0);
+
+      return count >= minQuestionsNum;
+    });
+    
+    console.log(`[Language Filter] Filtered to ${filteredStudents.length} students`);
+    
+    res.json({ 
+      students: filteredStudents,
+      filters: { language, minQuestions: minQuestionsNum, course, year_of_passing }
+    });
+    
+  } catch (error) {
+    console.error('[Language Filter] Error:', error);
+    res.status(500).json({ error: sanitizeError(error, 'Failed to fetch language filter data.') });
   }
 });
 
-// PATCH /api/admin/users/:id/role
-router.patch('/users/:id/role', async (req, res) => {
+
+// GET /api/admin/available-years - Get list of all years of passing
+router.get('/available-years', async (req, res) => {
   try {
-    const { id } = req.params;
-    const { role } = req.body;
-    if (!['user', 'admin'].includes(role)) return res.status(400).json({ error: 'Invalid role. Must be "user" or "admin"' });
-    const result = await pool.query('UPDATE users SET role = $1 WHERE id = $2 RETURNING id, name, email, role', [role, id]);
-    if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
-    res.json({ message: `User role updated to ${role}`, user: result.rows[0] });
-  } catch (err) {
-    console.error('Admin update role error:', err);
-    res.status(500).json({ error: err.message });
+    const result = await pool.query(
+      `SELECT DISTINCT year_of_passing FROM users WHERE role = 'user' AND year_of_passing IS NOT NULL ORDER BY year_of_passing DESC`
+    );
+    const years = result.rows.map(r => r.year_of_passing);
+    res.json({ years });
+  } catch (error) {
+    console.error('[Available Years] Error:', error);
+    res.status(500).json({ error: sanitizeError(error, 'Failed to fetch available years.') });
   }
 });
 
-// Helper function for rankings - USING CORRECT SQL WITH PLATFORM-SPECIFIC JOINS
+
+// GET /api/admin/available-languages - Get list of all programming languages
+router.get('/available-languages', async (req, res) => {
+  try {
+    console.log('[Available Languages] Request received');
+    
+    const result = await pool.query(`
+      SELECT DISTINCT extra_data
+      FROM stats
+      WHERE platform = 'leetcode' AND extra_data IS NOT NULL
+    `);
+    
+    console.log(`[Available Languages] Found ${result.rows.length} stats records`);
+    
+    const languagesSet = new Set();
+    
+    result.rows.forEach(row => {
+      const languageData = row.extra_data?.languageData || [];
+      languageData.forEach(lang => {
+        if (lang.name) {
+          languagesSet.add(lang.name);
+        }
+      });
+    });
+    
+    const languages = Array.from(languagesSet).sort();
+    
+    console.log(`[Available Languages] Extracted ${languages.length} unique languages:`, languages);
+    
+    res.json({ languages });
+    
+  } catch (error) {
+    console.error('[Available Languages] Error:', error);
+    res.status(500).json({ error: sanitizeError(error, 'Failed to fetch available languages.') });
+  }
+});
+
+// ─── Helper: Rankings ────────────────────────────────────────────────────────
+// Fix #9 — moved ABOVE module.exports so it's in scope for the routes below.
 async function calculateRankings(userId, userCourse, userSection, userTotalProblems) {
   try {
-    // Overall ranking - count users with more problems
     const overallRankResult = await pool.query(`
       SELECT COUNT(*) + 1 as rank
       FROM (
@@ -493,7 +593,6 @@ async function calculateRankings(userId, userCourse, userSection, userTotalProbl
 
     const overallTotalResult = await pool.query(`SELECT COUNT(*) as total FROM users WHERE role = 'user'`);
 
-    // Course-wise ranking
     const courseRankResult = await pool.query(`
       SELECT COUNT(*) + 1 as rank
       FROM (
@@ -512,7 +611,6 @@ async function calculateRankings(userId, userCourse, userSection, userTotalProbl
 
     const courseTotalResult = await pool.query(`SELECT COUNT(*) as total FROM users WHERE role = 'user' AND course = $1`, [userCourse]);
 
-    // Section-wise ranking
     const sectionRankResult = await pool.query(`
       SELECT COUNT(*) + 1 as rank
       FROM (
@@ -533,15 +631,68 @@ async function calculateRankings(userId, userCourse, userSection, userTotalProbl
 
     return {
       overall: { rank: parseInt(overallRankResult.rows[0].rank), total: parseInt(overallTotalResult.rows[0].total) },
-      course: { rank: parseInt(courseRankResult.rows[0].rank), total: parseInt(courseTotalResult.rows[0].total), name: userCourse },
-      section: { rank: parseInt(sectionRankResult.rows[0].rank), total: parseInt(sectionTotalResult.rows[0].total), name: userSection }
+      course:  { rank: parseInt(courseRankResult.rows[0].rank),  total: parseInt(courseTotalResult.rows[0].total),  name: userCourse },
+      section: { rank: parseInt(sectionRankResult.rows[0].rank), total: parseInt(sectionTotalResult.rows[0].total), name: userSection },
     };
   } catch (error) {
     console.error('Error calculating rankings:', error);
     return {
       overall: { rank: 0, total: 0 },
-      course: { rank: 0, total: 0, name: userCourse },
-      section: { rank: 0, total: 0, name: userSection }
+      course:  { rank: 0, total: 0, name: userCourse },
+      section: { rank: 0, total: 0, name: userSection },
     };
   }
 }
+
+// PATCH /api/admin/users/:id/details - Update user details (year_of_passing, course, section, etc.)
+router.patch('/users/:id/details', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { year_of_passing, course, section, name } = req.body;
+
+    const updates = [];
+    const params = [];
+
+    if (year_of_passing !== undefined) {
+      const yr = year_of_passing === '' || year_of_passing === null ? null : parseInt(year_of_passing);
+      params.push(yr);
+      updates.push(`year_of_passing = $${params.length}`);
+    }
+    if (course !== undefined) { params.push(course); updates.push(`course = $${params.length}`); }
+    if (section !== undefined) { params.push(section); updates.push(`section = $${params.length}`); }
+    if (name !== undefined) { params.push(name.trim()); updates.push(`name = $${params.length}`); }
+
+    if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
+
+    params.push(id);
+    const result = await pool.query(
+      `UPDATE users SET ${updates.join(', ')} WHERE id = $${params.length} RETURNING id, name, email, course, section, year_of_passing`,
+      params
+    );
+
+    if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+    res.json({ message: 'User updated successfully', user: result.rows[0] });
+  } catch (err) {
+    console.error('Admin update user details error:', err);
+    res.status(500).json({ error: sanitizeError(err, 'Failed to update user details.') });
+  }
+});
+
+
+// PATCH /api/admin/users/:id/role
+router.patch('/users/:id/role', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { role } = req.body;
+    if (!['user', 'admin'].includes(role)) return res.status(400).json({ error: 'Invalid role. Must be "user" or "admin"' });
+    const result = await pool.query('UPDATE users SET role = $1 WHERE id = $2 RETURNING id, name, email, role', [role, id]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+    res.json({ message: `User role updated to ${role}`, user: result.rows[0] });
+  } catch (err) {
+    console.error('Admin update role error:', err);
+    res.status(500).json({ error: sanitizeError(err, 'Failed to update user role.') });
+  }
+});
+
+module.exports = router;
+

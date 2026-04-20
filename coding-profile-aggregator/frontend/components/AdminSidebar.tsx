@@ -24,6 +24,7 @@ export default function AdminSidebar({ admin }: AdminSidebarProps) {
     { name: 'Sections', href: '/admin/sections', icon: BarChart3 },
     { name: 'Courses', href: '/admin/courses', icon: BarChart3 },
     { name: 'Leaderboard', href: '/admin/leaderboard', icon: Trophy },
+    { name: 'Language Filter', href: '/admin/language-filter', icon: BarChart3 },
   ];
 
   if (admin.role === 'superadmin') {

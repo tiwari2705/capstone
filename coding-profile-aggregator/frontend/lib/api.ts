@@ -34,9 +34,17 @@ api.interceptors.response.use(
       if (!err.response) {
         console.error('[API Network Error] No response from server. Check CORS settings or if backend is down.');
       } else if (err.response.status === 401) {
-        console.warn('[API Auth] Session expired or invalid');
-        localStorage.removeItem('token');
-        window.location.href = '/login';
+        // Fix #8 — only redirect if the user HAD a session token.
+        // Without this check, the login endpoint's own 401 (wrong credentials)
+        // would also trigger a redirect, causing an infinite login loop.
+        const hadToken = !!localStorage.getItem('token');
+        if (hadToken) {
+          console.warn('[API Auth] Session expired — redirecting to login');
+          localStorage.removeItem('token');
+          window.location.href = '/login';
+        } else {
+          console.warn('[API Auth] 401 received with no active session (login failure or public endpoint)');
+        }
       } else {
         console.error(`[API Error ${err.response.status}]`, err.response.data);
       }

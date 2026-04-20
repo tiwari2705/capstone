@@ -5,6 +5,8 @@ import UserTable from '@/components/admin/UserTable';
 import SearchBar from '@/components/admin/SearchBar';
 import FilterBar from '@/components/admin/FilterBar';
 import toast from 'react-hot-toast';
+import { Download } from '@/components/icons';
+import * as XLSX from 'xlsx';
 
 interface User {
   id: number;
@@ -105,6 +107,57 @@ export default function UsersPage() {
     }
   };
 
+  const handleExportToExcel = () => {
+    if (users.length === 0) {
+      toast.error('No data to export');
+      return;
+    }
+
+    // Prepare data for Excel
+    const excelData = users.map(user => ({
+      'Name': user.name,
+      'Registration No': user.registration_no || 'N/A',
+      'Email': user.email,
+      'Course': user.course || 'N/A',
+      'Section': user.section || 'N/A',
+      'Year of Passing': user.year_of_passing ? String(user.year_of_passing) : 'N/A',
+      'Total Problems Solved': user.total_problems || 0,
+      'Total Score': user.total_score ? (typeof user.total_score === 'string' ? parseFloat(user.total_score).toFixed(2) : user.total_score.toFixed(2)) : '0.00',
+      'Verified Profiles': user.verified_profiles || 0
+    }));
+
+    // Create worksheet
+    const ws = XLSX.utils.json_to_sheet(excelData);
+    
+    // Set column widths
+    ws['!cols'] = [
+      { wch: 25 }, // Name
+      { wch: 20 }, // Registration No
+      { wch: 30 }, // Email
+      { wch: 15 }, // Course
+      { wch: 10 }, // Section
+      { wch: 15 }, // Year of Passing
+      { wch: 20 }, // Total Problems
+      { wch: 15 }, // Total Score
+      { wch: 18 }  // Verified Profiles
+    ];
+
+    // Create workbook
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Users');
+
+    // Generate filename with filters
+    let filename = 'users';
+    if (selectedCourse) filename += `_${selectedCourse}`;
+    if (selectedSection) filename += `_section${selectedSection}`;
+    if (selectedYear) filename += `_year${selectedYear}`;
+    filename += '.xlsx';
+
+    // Download
+    XLSX.writeFile(wb, filename);
+    toast.success('Excel file downloaded successfully');
+  };
+
   return (
     <div style={{ minHeight: '100vh' }}>
       <div className="page-header">
@@ -140,6 +193,24 @@ export default function UsersPage() {
           Showing <span className="text-white font-bold">{offset + 1}</span> - <span className="text-white font-bold">{Math.min(offset + limit, total)}</span> of <span className="text-accent-purple font-black">{total}</span> total users
         </p>
         <div className="flex items-center gap-3">
+          <button
+            onClick={handleExportToExcel}
+            disabled={users.length === 0}
+            className="btn btn-primary"
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '0.5rem',
+              padding: '0.5rem 1rem',
+              fontSize: '0.85rem',
+              fontWeight: 700,
+              opacity: users.length === 0 ? 0.5 : 1,
+              cursor: users.length === 0 ? 'not-allowed' : 'pointer'
+            }}
+          >
+            <Download size={18} />
+            Export to Excel
+          </button>
           <button
             onClick={handlePrevPage}
             disabled={offset === 0}
