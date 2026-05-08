@@ -15,7 +15,7 @@ import Tooltip from '@/components/Tooltip';
 import RankingCard from '@/components/RankingCard';
 
 interface DashboardData {
-  user: { name: string; email: string; course: string; section: string; registration_no: string };
+  user: { name: string; username?: string; email: string; course: string; section: string; registration_no: string };
   profiles: Array<{ platform: string; username: string; verified: boolean; profile_url?: string }>;
   stats: Record<string, {
     problems_solved: number; rating: number;
