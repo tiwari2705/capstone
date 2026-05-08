@@ -1,28 +1,15 @@
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
-// Gmail SMTP transporter — uses EMAIL_USER + EMAIL_PASSWORD (App Password)
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 465,
-  secure: true, // SSL on port 465
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASSWORD
-  },
-  connectionTimeout: 10000, // 10 s — fail fast instead of hanging the request
-  greetingTimeout: 10000,
-  socketTimeout: 15000
-});
+// Resend uses HTTPS (port 443) — never blocked by cloud providers.
+// Replaces nodemailer+Gmail SMTP which times out on Render (ports 465/587 are blocked).
+const resend = new Resend(process.env.RESEND_API_KEY);
 
-// Verify SMTP connection at startup
-transporter.verify((err) => {
-  if (err) {
-    console.error('[Email] ✗ SMTP connection failed:', err.message);
-    console.error('[Email] Check EMAIL_USER and EMAIL_PASSWORD in your environment variables.');
-  } else {
-    console.log('[Email] ✓ SMTP connection ready — emails will be sent via', process.env.EMAIL_USER);
-  }
-});
+// Validate key at startup
+if (!process.env.RESEND_API_KEY) {
+  console.error('[Email] ✗ RESEND_API_KEY is not set — emails will fail!');
+} else {
+  console.log('[Email] ✓ Resend email client ready — emails will be sent via', process.env.EMAIL_FROM || 'onboarding@resend.dev');
+}
 
 // Generate 6-digit OTP
 const generateOTP = () => {
@@ -105,15 +92,21 @@ const sendOTPEmail = async (email, otp, registrationNo, purpose = 'verification'
       </div>
     `;
 
-  const mailOptions = {
-    from: `"CodeQuest" <${process.env.EMAIL_USER}>`,
-    to: email,
-    subject: subject,
-    html: message
-  };
+  const fromAddress = process.env.EMAIL_FROM || 'CodeQuest <onboarding@resend.dev>';
 
   try {
-    await transporter.sendMail(mailOptions);
+    const { error } = await resend.emails.send({
+      from: fromAddress,
+      to: [email],
+      subject: subject,
+      html: message,
+    });
+
+    if (error) {
+      console.error('Email sending error:', error);
+      throw new Error('Failed to send email');
+    }
+
     return true;
   } catch (error) {
     console.error('Email sending error:', error);
