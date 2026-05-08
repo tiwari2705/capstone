@@ -12,24 +12,33 @@ interface RankingCardProps {
   rankings: RankingData;
 }
 
+function getTopPercentage(rank?: number | null, total?: number | null) {
+  const validRank = typeof rank === 'number' && Number.isFinite(rank);
+  const validTotal = typeof total === 'number' && Number.isFinite(total);
+
+  if (!validRank || !validTotal || total! <= 0 || rank! <= 0 || rank! > total!) {
+    return 'Top N/A';
+  }
+
+  const rawPercentage = (rank! / total!) * 100;
+
+  if (rawPercentage <= 1) {
+    return 'Top 1%';
+  }
+
+  const bucket = Math.min(100, Math.ceil(rawPercentage / 10) * 10);
+  return `Top ${bucket}%`;
+}
+
 export default function RankingCard({ rankings }: RankingCardProps) {
   // Defensive checks for undefined rankings
   if (!rankings || !rankings.overall || !rankings.course || !rankings.section) {
     return null;
   }
 
-  // Calculate percentiles
-  const overallPercentile = rankings.overall.total > 0 
-    ? ((rankings.overall.total - rankings.overall.rank + 1) / rankings.overall.total * 100).toFixed(1)
-    : '0';
-  
-  const coursePercentile = rankings.course.total > 0
-    ? ((rankings.course.total - rankings.course.rank + 1) / rankings.course.total * 100).toFixed(1)
-    : '0';
-  
-  const sectionPercentile = rankings.section.total > 0
-    ? ((rankings.section.total - rankings.section.rank + 1) / rankings.section.total * 100).toFixed(1)
-    : '0';
+  const overallTopPercentage = getTopPercentage(rankings.overall.rank, rankings.overall.total);
+  const courseTopPercentage = getTopPercentage(rankings.course.rank, rankings.course.total);
+  const sectionTopPercentage = getTopPercentage(rankings.section.rank, rankings.section.total);
 
   return (
     <div className="glass-card" style={{
@@ -178,7 +187,7 @@ export default function RankingCard({ rankings }: RankingCardProps) {
             color: '#3b82f6'
           }}>
             <TrendingUp size={10} />
-            Top {overallPercentile}%
+            {overallTopPercentage}
           </div>
         </div>
 
@@ -254,7 +263,7 @@ export default function RankingCard({ rankings }: RankingCardProps) {
             color: '#10b981'
           }}>
             <TrendingUp size={10} />
-            Top {coursePercentile}%
+            {courseTopPercentage}
           </div>
         </div>
 
@@ -330,7 +339,7 @@ export default function RankingCard({ rankings }: RankingCardProps) {
             color: '#eab308'
           }}>
             <TrendingUp size={10} />
-            Top {sectionPercentile}%
+            {sectionTopPercentage}
           </div>
         </div>
       </div>
