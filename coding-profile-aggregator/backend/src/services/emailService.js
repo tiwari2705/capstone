@@ -1,13 +1,12 @@
 const { Resend } = require('resend');
 
-// Resend uses HTTPS (port 443) — never blocked by cloud providers.
-// Replaces nodemailer+Gmail SMTP which times out on Render (ports 465/587 are blocked).
-const resend = new Resend(process.env.RESEND_API_KEY);
-
-// Validate key at startup
+// Only instantiate Resend if the key exists to prevent crashing the server on startup
+let resend;
 if (!process.env.RESEND_API_KEY) {
-  console.error('[Email] ✗ RESEND_API_KEY is not set — emails will fail!');
+  console.error('[Email] ✗ RESEND_API_KEY is not set in environment variables — emails will fail to send!');
+  console.error('[Email] Add RESEND_API_KEY in the Render Dashboard -> Environment variables.');
 } else {
+  resend = new Resend(process.env.RESEND_API_KEY);
   console.log('[Email] ✓ Resend email client ready — emails will be sent via', process.env.EMAIL_FROM || 'onboarding@resend.dev');
 }
 
@@ -23,7 +22,7 @@ const sendOTPEmail = async (email, otp, registrationNo, purpose = 'verification'
     console.log('\n========== OTP EMAIL (DEV MODE) ==========');
     console.log(`To: ${email}`);
     console.log(`Registration No: ${registrationNo}`);
-    console.log(`Purpose: ${purpose === 'verification' ? 'Email Verification' : 'Password Reset'}`);
+    console.log(`Purpose: ${purpose === 'verification' ? 'Email Verification' : purpose === 'reset' ? 'Password Reset' : 'Unknown'}`);
     console.log(`OTP: ${otp}`);
     console.log(`Expires: 10 minutes from now`);
     console.log('==========================================\n');
@@ -32,7 +31,9 @@ const sendOTPEmail = async (email, otp, registrationNo, purpose = 'verification'
 
   const subject = purpose === 'verification' 
     ? 'CodeQuest - Email Verification OTP' 
-    : 'CodeQuest - Password Reset OTP';
+    : purpose === 'reset'
+    ? 'CodeQuest - Password Reset OTP'
+    : 'CodeQuest - OTP Verification';
   
   const message = purpose === 'verification'
     ? `
@@ -93,6 +94,11 @@ const sendOTPEmail = async (email, otp, registrationNo, purpose = 'verification'
     `;
 
   const fromAddress = process.env.EMAIL_FROM || 'CodeQuest <onboarding@resend.dev>';
+
+  if (!resend) {
+    console.error('[Email] ✗ Cannot send email: RESEND_API_KEY is missing in environment variables.');
+    throw new Error('Email service is not configured properly on the server.');
+  }
 
   try {
     const { error } = await resend.emails.send({

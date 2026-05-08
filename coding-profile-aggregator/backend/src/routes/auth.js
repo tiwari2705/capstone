@@ -55,7 +55,7 @@ router.post('/send-signup-otp', async (req, res) => {
 
     // Send OTP email
     try {
-      await sendOTPEmail(email, otp, registration_no, 'signup');
+      await sendOTPEmail(email, otp, registration_no, 'verification');
     } catch (emailErr) {
       console.error('[Send Signup OTP] Email send failed:', emailErr.message);
       return res.status(502).json({
@@ -66,7 +66,7 @@ router.post('/send-signup-otp', async (req, res) => {
     // Store OTP
     await pool.query(
       'INSERT INTO otp_codes (email, registration_no, otp, purpose, expires_at) VALUES ($1, $2, $3, $4, $5)',
-      [email.toLowerCase().trim(), registration_no.toUpperCase().trim(), otp, 'signup', expiresAt]
+      [email.toLowerCase().trim(), registration_no.toUpperCase().trim(), otp, 'verification', expiresAt]
     );
 
     res.status(200).json({
@@ -112,7 +112,7 @@ router.post('/signup', async (req, res) => {
     // Fix #29 — Verify OTP before creating account
     const otpResult = await pool.query(
       'SELECT * FROM otp_codes WHERE email = $1 AND registration_no = $2 AND otp = $3 AND purpose = $4 AND used = FALSE AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1',
-      [email.toLowerCase().trim(), registration_no.toUpperCase().trim(), otp, 'signup']
+      [email.toLowerCase().trim(), registration_no.toUpperCase().trim(), otp, 'verification']
     );
 
     if (otpResult.rows.length === 0) {
@@ -338,7 +338,7 @@ router.post('/forgot-password', async (req, res) => {
 
     // Send email first
     try {
-      await sendOTPEmail(email, otp, registration_no, 'password_reset');
+      await sendOTPEmail(email, otp, registration_no, 'reset');
     } catch (emailErr) {
       console.error('[Forgot Password] Email send failed:', emailErr.message);
       return res.status(502).json({ error: 'Could not send reset email. Please try again later.' });
@@ -347,7 +347,7 @@ router.post('/forgot-password', async (req, res) => {
     // Store OTP only after email confirmed sent
     await pool.query(
       'INSERT INTO otp_codes (email, registration_no, otp, purpose, expires_at) VALUES ($1, $2, $3, $4, $5)',
-      [email, registration_no, otp, 'password_reset', expiresAt]
+      [email, registration_no, otp, 'reset', expiresAt]
     );
 
     res.json({ message: 'OTP sent to your email', email });
@@ -366,7 +366,7 @@ router.post('/verify-reset-otp', async (req, res) => {
     // Find valid OTP
     const otpResult = await pool.query(
       'SELECT * FROM otp_codes WHERE email = $1 AND otp = $2 AND purpose = $3 AND used = FALSE AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1',
-      [email, otp, 'password_reset']
+      [email, otp, 'reset']
     );
 
     if (otpResult.rows.length === 0) {
@@ -377,7 +377,7 @@ router.post('/verify-reset-otp', async (req, res) => {
     await pool.query('UPDATE otp_codes SET used = TRUE WHERE id = $1', [otpResult.rows[0].id]);
 
     // Generate a temporary token for password reset
-    const resetToken = jwt.sign({ email, purpose: 'password_reset' }, process.env.JWT_SECRET, { expiresIn: '15m' });
+    const resetToken = jwt.sign({ email, purpose: 'reset' }, process.env.JWT_SECRET, { expiresIn: '15m' });
 
     res.json({ message: 'OTP verified', resetToken });
   } catch (err) {
@@ -399,7 +399,7 @@ router.post('/reset-password', async (req, res) => {
   try {
     // Verify reset token
     const decoded = jwt.verify(resetToken, process.env.JWT_SECRET);
-    if (decoded.purpose !== 'password_reset') {
+    if (decoded.purpose !== 'reset') {
       return res.status(400).json({ error: 'Invalid reset token' });
     }
 
