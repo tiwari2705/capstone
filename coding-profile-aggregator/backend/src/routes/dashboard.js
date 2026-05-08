@@ -2,14 +2,16 @@ const express = require('express');
 const { pool } = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { getCached, setCached } = require('../services/cacheService');
+const {
+  calculateScore,
+  calculateRankings,
+  calculateStreaks,
+  processHeatmapData,
+  generateDSATopics,
+  sanitizeError,
+} = require('../utils/scoreUtils');
 
 const router = express.Router();
-
-// Fix #4 — never expose raw DB errors to the client in production
-const sanitizeError = (err, defaultMsg = 'An internal server error occurred') => {
-  if (process.env.NODE_ENV === 'production') return defaultMsg;
-  return err.message || defaultMsg;
-};
 
 // GET /api/dashboard
 router.get('/', authenticate, async (req, res) => {
@@ -69,10 +71,10 @@ router.get('/', authenticate, async (req, res) => {
     const totalSubmissions = stats.reduce((sum, s) => sum + (s.submissions || 0), 0);
     const totalBadges = stats.reduce((sum, s) => sum + (s.badges || 0), 0);
     
-    // Calculate max and current streak from daily submissions
+    // Calculate max and current streak from daily submissions (shared util)
     const { maxStreak, currentStreak } = calculateStreaks(dailySubmissions);
 
-    // Process heatmap data - aggregate all platforms per day
+    // Process heatmap data (shared util)
     const heatmapData = processHeatmapData(dailySubmissions);
 
     // Get contest data from extra_data and contest_history
@@ -147,34 +149,27 @@ router.get('/', authenticate, async (req, res) => {
 
     const totalContests = contests.reduce((sum, c) => sum + (c.count || 0), 0);
 
-    // Calculate score
+    // Calculate score (shared util — Fix #6)
     const score = calculateScore(statsMap);
 
-    // Calculate rankings
+    // Calculate rankings (shared util — Fix #10)
     const rankings = await calculateRankings(req.user.id, user.course, user.section, totalProblems);
 
-    // DSA Topic Analysis (proportional based on LeetCode problems)
+    // DSA Topic Analysis (shared util)
     const dsaTopics = generateDSATopics(statsMap);
 
     // Aggregate badges from all platforms
     const allBadges = [];
     
-    // LeetCode badges
     if (statsMap.leetcode?.extra_data?.badgeList) {
       allBadges.push(...statsMap.leetcode.extra_data.badgeList);
     }
-    
-    // Codeforces badges
     if (statsMap.codeforces?.extra_data?.badgeList) {
       allBadges.push(...statsMap.codeforces.extra_data.badgeList);
     }
-    
-    // GeeksforGeeks badges
     if (statsMap.geeksforgeeks?.extra_data?.badgeList) {
       allBadges.push(...statsMap.geeksforgeeks.extra_data.badgeList);
     }
-    
-    // HackerRank badges
     if (statsMap.hackerrank?.extra_data?.badgeList) {
       allBadges.push(...statsMap.hackerrank.extra_data.badgeList);
     }
@@ -191,25 +186,21 @@ router.get('/', authenticate, async (req, res) => {
       maxStreak,
       currentStreak,
       heatmapData,
-      allBadges, // All badges from all platforms
-      rankings, // User rankings
+      allBadges,
+      rankings,
       score 
     };
 
-    // Only include these if data exists
     if (totalContests > 0) {
       response.totalContests = totalContests;
       response.contests = contests;
     }
-
     if (Object.keys(contestRankings).length > 0) {
       response.contestRankings = contestRankings;
     }
-
     if (dsaTopics.length > 0) {
       response.dsaTopics = dsaTopics;
     }
-
     if (contestHistory.length > 0) {
       response.recentContests = contestHistory.slice(0, 5);
     }
@@ -222,216 +213,5 @@ router.get('/', authenticate, async (req, res) => {
     res.status(500).json({ error: sanitizeError(err, 'Failed to load dashboard data.') });
   }
 });
-
-function calculateStreaks(dailySubmissions) {
-  if (dailySubmissions.length === 0) {
-    return { maxStreak: 0, currentStreak: 0 };
-  }
-
-  // Group by date (aggregate all platforms)
-  const dateMap = {};
-  dailySubmissions.forEach(sub => {
-    const date = sub.submission_date.toISOString().split('T')[0];
-    dateMap[date] = (dateMap[date] || 0) + sub.total_count;
-  });
-
-  const dates = Object.keys(dateMap).sort().reverse(); // Most recent first
-  
-  let maxStreak = 0;
-  let currentStreak = 0;
-  let tempStreak = 0;
-  
-  const today = new Date().toISOString().split('T')[0];
-  let isCurrentStreakActive = dates[0] === today || dates[0] === getPreviousDate(today);
-
-  for (let i = 0; i < dates.length; i++) {
-    if (i === 0) {
-      tempStreak = 1;
-      if (isCurrentStreakActive) currentStreak = 1;
-    } else {
-      const prevDate = dates[i - 1];
-      const currDate = dates[i];
-      
-      if (getPreviousDate(prevDate) === currDate) {
-        tempStreak++;
-        if (isCurrentStreakActive && i < 100) currentStreak++;
-      } else {
-        maxStreak = Math.max(maxStreak, tempStreak);
-        tempStreak = 1;
-        isCurrentStreakActive = false;
-      }
-    }
-  }
-  
-  maxStreak = Math.max(maxStreak, tempStreak);
-  
-  return { maxStreak, currentStreak };
-}
-
-function getPreviousDate(dateStr) {
-  const date = new Date(dateStr);
-  date.setDate(date.getDate() - 1);
-  return date.toISOString().split('T')[0];
-}
-
-function processHeatmapData(dailySubmissions) {
-  // Create a map of date -> total count (all platforms combined)
-  const heatmap = {};
-  
-  dailySubmissions.forEach(sub => {
-    const date = sub.submission_date.toISOString().split('T')[0];
-    heatmap[date] = (heatmap[date] || 0) + parseInt(sub.total_count || 0);
-  });
-
-  // Convert to array format for frontend
-  return Object.entries(heatmap).map(([date, count]) => ({
-    date,
-    count
-  }));
-}
-
-function calculateScore(statsMap) {
-  const lc = statsMap['leetcode']?.problems_solved || 0;
-  const cf = statsMap['codeforces']?.rating || 0;
-  const gfg = statsMap['geeksforgeeks']?.score || statsMap['geeksforgeeks']?.problems_solved || 0;
-  const hr = statsMap['hackerrank']?.problems_solved || 0;
-  const cc = statsMap['codechef']?.rating || 0;
-  return parseFloat((lc * 1 + cf * 0.1 + gfg * 1 + hr * 1 + cc * 0.1).toFixed(2));
-}
-
-async function calculateRankings(userId, userCourse, userSection, userTotalProblems) {
-  try {
-    // Overall ranking - count users with more problems
-    const overallRankResult = await pool.query(`
-      SELECT COUNT(*) + 1 as rank
-      FROM (
-        SELECT u.id,
-          (COALESCE(lc.problems_solved, 0) + COALESCE(cf.problems_solved, 0) + COALESCE(gfg.problems_solved, 0) + COALESCE(hr.problems_solved, 0) + COALESCE(cc.problems_solved, 0)) AS total_problems
-        FROM users u
-        LEFT JOIN stats lc ON lc.user_id = u.id AND lc.platform = 'leetcode'
-        LEFT JOIN stats cf ON cf.user_id = u.id AND cf.platform = 'codeforces'
-        LEFT JOIN stats gfg ON gfg.user_id = u.id AND gfg.platform = 'geeksforgeeks'
-        LEFT JOIN stats hr ON hr.user_id = u.id AND hr.platform = 'hackerrank'
-        LEFT JOIN stats cc ON cc.user_id = u.id AND cc.platform = 'codechef'
-        WHERE u.role = 'user'
-      ) as ranked_users
-      WHERE total_problems > $1
-    `, [userTotalProblems]);
-
-    const overallTotalResult = await pool.query(`
-      SELECT COUNT(*) as total
-      FROM users
-      WHERE role = 'user'
-    `);
-
-    // Course-wise ranking
-    const courseRankResult = await pool.query(`
-      SELECT COUNT(*) + 1 as rank
-      FROM (
-        SELECT u.id,
-          (COALESCE(lc.problems_solved, 0) + COALESCE(cf.problems_solved, 0) + COALESCE(gfg.problems_solved, 0) + COALESCE(hr.problems_solved, 0) + COALESCE(cc.problems_solved, 0)) AS total_problems
-        FROM users u
-        LEFT JOIN stats lc ON lc.user_id = u.id AND lc.platform = 'leetcode'
-        LEFT JOIN stats cf ON cf.user_id = u.id AND cf.platform = 'codeforces'
-        LEFT JOIN stats gfg ON gfg.user_id = u.id AND gfg.platform = 'geeksforgeeks'
-        LEFT JOIN stats hr ON hr.user_id = u.id AND hr.platform = 'hackerrank'
-        LEFT JOIN stats cc ON cc.user_id = u.id AND cc.platform = 'codechef'
-        WHERE u.role = 'user' AND u.course = $1
-      ) as ranked_users
-      WHERE total_problems > $2
-    `, [userCourse, userTotalProblems]);
-
-    const courseTotalResult = await pool.query(`
-      SELECT COUNT(*) as total
-      FROM users
-      WHERE role = 'user' AND course = $1
-    `, [userCourse]);
-
-    // Section-wise ranking
-    const sectionRankResult = await pool.query(`
-      SELECT COUNT(*) + 1 as rank
-      FROM (
-        SELECT u.id,
-          (COALESCE(lc.problems_solved, 0) + COALESCE(cf.problems_solved, 0) + COALESCE(gfg.problems_solved, 0) + COALESCE(hr.problems_solved, 0) + COALESCE(cc.problems_solved, 0)) AS total_problems
-        FROM users u
-        LEFT JOIN stats lc ON lc.user_id = u.id AND lc.platform = 'leetcode'
-        LEFT JOIN stats cf ON cf.user_id = u.id AND cf.platform = 'codeforces'
-        LEFT JOIN stats gfg ON gfg.user_id = u.id AND gfg.platform = 'geeksforgeeks'
-        LEFT JOIN stats hr ON hr.user_id = u.id AND hr.platform = 'hackerrank'
-        LEFT JOIN stats cc ON cc.user_id = u.id AND cc.platform = 'codechef'
-        WHERE u.role = 'user' AND u.section = $1
-      ) as ranked_users
-      WHERE total_problems > $2
-    `, [userSection, userTotalProblems]);
-
-    const sectionTotalResult = await pool.query(`
-      SELECT COUNT(*) as total
-      FROM users
-      WHERE role = 'user' AND section = $1
-    `, [userSection]);
-
-    return {
-      overall: {
-        rank: parseInt(overallRankResult.rows[0].rank),
-        total: parseInt(overallTotalResult.rows[0].total)
-      },
-      course: {
-        rank: parseInt(courseRankResult.rows[0].rank),
-        total: parseInt(courseTotalResult.rows[0].total),
-        name: userCourse
-      },
-      section: {
-        rank: parseInt(sectionRankResult.rows[0].rank),
-        total: parseInt(sectionTotalResult.rows[0].total),
-        name: userSection
-      }
-    };
-  } catch (error) {
-    console.error('Error calculating rankings:', error);
-    return {
-      overall: { rank: 0, total: 0 },
-      course: { rank: 0, total: 0, name: userCourse },
-      section: { rank: 0, total: 0, name: userSection }
-    };
-  }
-}
-
-function generateDSATopics(statsMap) {
-  // Get real topic data from LeetCode if available
-  const leetcodeStats = statsMap.leetcode || {};
-  const leetcodeExtra = leetcodeStats.extra_data || {};
-  
-  if (leetcodeExtra.topicData && leetcodeExtra.topicData.length > 0) {
-    // Use real topic data from LeetCode
-    return leetcodeExtra.topicData
-      .slice(0, 20) // Top 20 topics
-      .map(topic => ({
-        name: topic.name,
-        count: topic.count,
-        color: '#3b82f6'
-      }));
-  }
-
-  // Fallback: Generate proportional distribution if no real data
-  const total = leetcodeStats.problems_solved || 0;
-  
-  if (total === 0) return [];
-
-  return [
-    { name: 'Arrays', count: Math.floor(total * 0.25), color: '#3b82f6' },
-    { name: 'String', count: Math.floor(total * 0.15), color: '#3b82f6' },
-    { name: 'Math', count: Math.floor(total * 0.12), color: '#3b82f6' },
-    { name: 'HashMap and Set', count: Math.floor(total * 0.10), color: '#3b82f6' },
-    { name: 'Sorting', count: Math.floor(total * 0.08), color: '#3b82f6' },
-    { name: 'Dynamic Programming', count: Math.floor(total * 0.07), color: '#3b82f6' },
-    { name: 'Binary Search', count: Math.floor(total * 0.06), color: '#3b82f6' },
-    { name: 'Two Pointers', count: Math.floor(total * 0.05), color: '#3b82f6' },
-    { name: 'Bit Manipulation', count: Math.floor(total * 0.04), color: '#3b82f6' },
-    { name: 'Simulation', count: Math.floor(total * 0.03), color: '#3b82f6' },
-    { name: 'Greedy', count: Math.floor(total * 0.02), color: '#3b82f6' },
-    { name: 'Stack', count: Math.floor(total * 0.02), color: '#3b82f6' },
-    { name: 'Tree', count: Math.floor(total * 0.01), color: '#3b82f6' },
-  ].filter(t => t.count > 0);
-}
 
 module.exports = router;

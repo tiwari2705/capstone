@@ -11,7 +11,6 @@ if (typeof window !== 'undefined') {
 const api = axios.create({
   baseURL: api_url,
   timeout: 60000, // Increased to 60s for Puppeteer scraper operations
-  withCredentials: true
 });
 
 api.interceptors.request.use((config) => {

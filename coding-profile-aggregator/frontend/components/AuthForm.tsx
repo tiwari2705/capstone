@@ -29,6 +29,8 @@ export default function AuthForm({ mode }: AuthFormProps) {
   const router   = useRouter();
   const [loading,  setLoading]  = useState(false);
   const [showPass, setShowPass] = useState(false);
+  const [otpSent, setOtpSent] = useState(false);
+  const [otp, setOtp] = useState('');
   const [form, setForm] = useState({ 
     name: '', 
     email: '', 
@@ -39,56 +41,85 @@ export default function AuthForm({ mode }: AuthFormProps) {
     year_of_passing: ''
   });
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  // Step 1: Send OTP for signup
+  const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      const endpoint = mode === 'login' ? '/auth/login' : '/auth/signup';
-      const payload  = mode === 'login' 
-        ? { registration_no: form.registration_no, password: form.password } 
-        : form;
-      const res      = await api.post(endpoint, payload);
-      
-      if (mode === 'signup' && res.data.requiresVerification) {
-        toast.success('Account created! Please check your email for OTP.');
-        router.push(`/verify-email?email=${encodeURIComponent(res.data.email)}`);
-        return;
-      }
-      
-      if (mode === 'login' && res.data.requiresVerification) {
-        toast.error('Please verify your email first');
-        router.push(`/verify-email?email=${encodeURIComponent(res.data.email)}`);
-        return;
-      }
-      
-      setToken(res.data.token);
-      const userRole = res.data.user?.role || 'user';
-      toast.success(userRole === 'admin'
-        ? (mode === 'login' ? 'Welcome back, Admin!' : 'Admin account created!')
-        : (mode === 'login' ? 'Welcome back!'        : 'Account created!'));
-      router.push(userRole === 'admin' ? '/admin' : '/dashboard');
+      await api.post('/auth/send-signup-otp', {
+        email: form.email,
+        registration_no: form.registration_no
+      });
+      toast.success('OTP sent to your email!');
+      setOtpSent(true);
     } catch (err) {
       const error = err as AxiosError<any>;
-      console.error('[Auth Error Details]', {
-        message: error.message,
-        code: error.code,
-        status: error.response?.status,
-        url: error.config?.url
-      });
-      
-      if (!error.response) {
-        toast.error(`Connection failed: ${error.message}. Checking console for details.`);
-      } else {
-        const errorData = error.response.data;
-        if (errorData?.requiresVerification) {
-          toast.error(errorData.error);
-          router.push(`/verify-email?email=${encodeURIComponent(errorData.email)}`);
-        } else {
-          toast.error(errorData?.error || 'Authentication failed');
-        }
-      }
+      toast.error(error.response?.data?.error || 'Failed to send OTP');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Step 2: Complete signup with OTP
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const res = await api.post('/auth/signup', {
+        ...form,
+        otp
+      });
+      
+      setToken(res.data.token);
+      toast.success('Account created successfully!');
+      router.push('/dashboard');
+    } catch (err) {
+      const error = err as AxiosError<any>;
+      toast.error(error.response?.data?.error || 'Signup failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (mode === 'login') {
+      setLoading(true);
+      try {
+        const res = await api.post('/auth/login', {
+          registration_no: form.registration_no,
+          password: form.password
+        });
+        
+        if (res.data.requiresVerification) {
+          toast.error('Please verify your email first');
+          router.push(`/verify-email?email=${encodeURIComponent(res.data.email)}`);
+          return;
+        }
+        
+        setToken(res.data.token);
+        toast.success('Welcome back!');
+        router.push(res.data.user?.role === 'admin' ? '/admin' : '/dashboard');
+      } catch (err) {
+        const error = err as AxiosError<any>;
+        if (!error.response) {
+          toast.error(`Connection failed: ${error.message}`);
+        } else {
+          const errorData = error.response.data;
+          if (errorData?.requiresVerification) {
+            toast.error(errorData.error);
+            router.push(`/verify-email?email=${encodeURIComponent(errorData.email)}`);
+          } else {
+            toast.error(errorData?.error || 'Login failed');
+          }
+        }
+      } finally {
+        setLoading(false);
+      }
+    } else if (!otpSent) {
+      await handleSendOtp(e);
+    } else {
+      await handleSignup(e);
     }
   };
 
@@ -131,39 +162,35 @@ export default function AuthForm({ mode }: AuthFormProps) {
         {/* Form card */}
         <div className="glass-card" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {mode === 'signup' && field('name', 'Full Name', 'text', 'John Doe')}
-            
-            {mode === 'login' 
-              ? field('registration_no', 'Registration Number', 'text', 'e.g. 21BCE1234') 
-              : field('registration_no', 'Registration Number', 'text', 'e.g. 21BCE1234')}
-
-            {mode === 'signup' && field('email', 'Email Address', 'email', 'you@example.com')}
-
-            {/* Password with toggle */}
-            <div>
-              <label className="form-label">Password</label>
-              <div style={{ position: 'relative' }}>
-                <input
-                  type={showPass ? 'text' : 'password'}
-                  value={form.password}
-                  onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
-                  placeholder="••••••••"
-                  className="form-input"
-                  style={{ paddingRight: '2.75rem' }}
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPass(!showPass)}
-                  style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex' }}
-                >
-                  {showPass ? <EyeOff size={17} /> : <Eye size={17} />}
-                </button>
-              </div>
-            </div>
-
-            {mode === 'signup' && (
+            {mode === 'signup' && !otpSent && (
               <>
+                {field('name', 'Full Name', 'text', 'John Doe')}
+                {field('registration_no', 'Registration Number', 'text', 'e.g. 21BCE1234')}
+                {field('email', 'Email Address', 'email', 'you@example.com')}
+
+                {/* Password with toggle */}
+                <div>
+                  <label className="form-label">Password</label>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type={showPass ? 'text' : 'password'}
+                      value={form.password}
+                      onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
+                      placeholder="••••••••"
+                      className="form-input"
+                      style={{ paddingRight: '2.75rem' }}
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPass(!showPass)}
+                      style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex' }}
+                    >
+                      {showPass ? <EyeOff size={17} /> : <Eye size={17} />}
+                    </button>
+                  </div>
+                </div>
+
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                   <div>
                     <label className="form-label">Course</label>
@@ -201,12 +228,76 @@ export default function AuthForm({ mode }: AuthFormProps) {
               </>
             )}
 
+            {mode === 'signup' && otpSent && (
+              <div style={{ background: 'rgba(139, 92, 246, 0.1)', border: '1px solid rgba(139, 92, 246, 0.3)', borderRadius: '8px', padding: '1rem' }}>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1rem' }}>
+                  ✓ Verification email sent to <strong>{form.email}</strong>
+                </p>
+                <div>
+                  <label className="form-label">Enter OTP</label>
+                  <input
+                    type="text"
+                    placeholder="Enter 6-digit OTP"
+                    value={otp}
+                    onChange={e => setOtp(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+                    maxLength={6}
+                    className="form-input"
+                    style={{ textAlign: 'center', fontSize: '1rem', letterSpacing: '0.1rem', fontWeight: 400 }}
+                    required
+                  />
+                </div>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '0.5rem', textAlign: 'center' }}>
+                  OTP expires in 10 minutes
+                </p>
+              </div>
+            )}
+
+            {mode === 'login' && (
+              <>
+                {field('registration_no', 'Registration Number', 'text', 'e.g. 21BCE1234')}
+
+                {/* Password with toggle */}
+                <div>
+                  <label className="form-label">Password</label>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type={showPass ? 'text' : 'password'}
+                      value={form.password}
+                      onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
+                      placeholder="••••••••"
+                      className="form-input"
+                      style={{ paddingRight: '2.75rem' }}
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPass(!showPass)}
+                      style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex' }}
+                    >
+                      {showPass ? <EyeOff size={17} /> : <Eye size={17} />}
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+
             <button type="submit" disabled={loading} className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', padding: '0.8rem', fontSize: '0.95rem', marginTop: '0.5rem' }}>
               {loading
                 ? <span style={{ display: 'inline-block', width: 18, height: 18, border: '2px solid rgba(255,255,255,0.3)', borderTop: '2px solid #fff', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
                 : null}
-              {mode === 'login' ? 'Sign In' : 'Create Account'}
+              {mode === 'login' ? 'Sign In' : (otpSent ? 'Create Account' : 'Send OTP')}
             </button>
+
+            {mode === 'signup' && otpSent && (
+              <button
+                type="button"
+                onClick={() => { setOtpSent(false); setOtp(''); }}
+                className="btn btn-ghost"
+                style={{ width: '100%' }}
+              >
+                ← Back to form
+              </button>
+            )}
           </form>
 
           {mode === 'login' && (

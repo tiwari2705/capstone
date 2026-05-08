@@ -12,6 +12,12 @@ type Profile = {
   created_at:        string;
 };
 
+type ConflictInfo = {
+  platform: string;
+  name: string;
+  registration_no: string;
+} | null;
+
 const platformLabels: Record<string, { label: string; color: string; url: (u: string) => string }> = {
   leetcode:      { label: 'LeetCode',      color: '#eab308', url: u => `https://leetcode.com/${u}` },
   codeforces:    { label: 'Codeforces',    color: '#3b82f6', url: u => `https://codeforces.com/profile/${u}` },
@@ -31,6 +37,7 @@ export default function ProfilesPage() {
   const [deleting,  setDeleting]  = useState<string | null>(null);
   const [editing,   setEditing]   = useState<string | null>(null);
   const [editUsername, setEditUsername] = useState('');
+  const [conflict, setConflict] = useState<ConflictInfo>(null);
 
   const fetchProfiles = async () => {
     try {
@@ -54,7 +61,21 @@ export default function ProfilesPage() {
       setForm({ platform: 'leetcode', username: '' });
       fetchProfiles();
     } catch (err: unknown) {
-      toast.error((err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Failed to add profile');
+      const error = err as { response?: { status?: number; data?: { error?: string; conflict?: boolean; linkedTo?: { name: string; registration_no: string } } } };
+
+      // Show conflict modal if this username is already taken by another student
+      if (error.response?.status === 409 && error.response?.data?.conflict && error.response?.data?.linkedTo) {
+        const linkedTo = error.response.data.linkedTo;
+        setConflict({
+          platform: form.platform,
+          name: linkedTo.name,
+          registration_no: linkedTo.registration_no
+        });
+        setShowForm(false);
+        return;
+      }
+
+      toast.error(error.response?.data?.error || 'Failed to add profile');
     } finally {
       setSubmitting(false);
     }
@@ -67,7 +88,8 @@ export default function ProfilesPage() {
       toast.success(res.data.message || 'Profile verified!');
       fetchProfiles();
     } catch (err: unknown) {
-      toast.error((err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Verification failed');
+      const error = err as { response?: { data?: { error?: string } } };
+      toast.error(error.response?.data?.error || 'Verification failed');
     } finally {
       setVerifying(null);
     }
@@ -342,6 +364,92 @@ export default function ProfilesPage() {
           </p>
         </div>
       </div>
+
+      {/* ── Conflict Modal ── */}
+      {conflict && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.6)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          backdropFilter: 'blur(4px)',
+        }}>
+          <div className="glass-card" style={{
+            padding: '2rem',
+            maxWidth: '450px',
+            width: '90%',
+            borderRadius: '12px',
+            border: '1px solid rgba(239, 68, 68, 0.3)',
+            background: 'rgba(15, 23, 42, 0.9)',
+          }}>
+            <div style={{ marginBottom: '1.5rem' }}>
+              <h2 style={{
+                fontSize: '1.25rem',
+                fontWeight: 800,
+                color: '#ef4444',
+                marginBottom: '0.75rem',
+              }}>
+                Account Already Linked
+              </h2>
+              <p style={{
+                color: 'var(--text-secondary)',
+                fontSize: '0.9rem',
+                lineHeight: 1.6,
+              }}>
+                This {platformLabels[conflict.platform]?.label} account is already verified and linked to another student.
+              </p>
+            </div>
+
+            <div style={{
+              background: 'rgba(139, 92, 246, 0.1)',
+              border: '1px solid rgba(139, 92, 246, 0.3)',
+              borderRadius: '8px',
+              padding: '1rem',
+              marginBottom: '1.5rem',
+            }}>
+              <div style={{ marginBottom: '0.75rem' }}>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: '0.25rem' }}>
+                  Linked to:
+                </p>
+                <p style={{ color: '#fff', fontWeight: 600, fontSize: '1rem' }}>
+                  {conflict.name}
+                </p>
+              </div>
+              <div>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: '0.25rem' }}>
+                  Registration Number:
+                </p>
+                <p style={{ color: '#8b5cf6', fontWeight: 600, fontSize: '0.95rem', fontFamily: 'monospace' }}>
+                  {conflict.registration_no}
+                </p>
+              </div>
+            </div>
+
+            <p style={{
+              color: 'var(--text-secondary)',
+              fontSize: '0.85rem',
+              marginBottom: '1.5rem',
+              lineHeight: 1.5,
+            }}>
+              Each coding platform account can only be verified by one user. If this is your account, please contact the administrator or that student to unlink it.
+            </p>
+
+            <button
+              onClick={() => setConflict(null)}
+              className="btn btn-primary"
+              style={{ width: '100%', fontWeight: 600 }}
+            >
+              Understood
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

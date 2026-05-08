@@ -27,9 +27,6 @@ export default function AdminSidebar({ admin }: AdminSidebarProps) {
     { name: 'Language Filter', href: '/admin/language-filter', icon: BarChart3 },
   ];
 
-  if (admin.role === 'superadmin') {
-    navigation.push({ name: 'Manage Admins', href: '/admin/admins', icon: User });
-  }
 
   const handleLogout = () => {
     removeToken();
@@ -55,8 +52,8 @@ export default function AdminSidebar({ admin }: AdminSidebarProps) {
         </div>
         <p className="font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{admin.name || admin.username}</p>
         <div className="mt-2 text-center">
-          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${admin.role === 'superadmin' ? 'bg-purple-500/20 text-purple-400 border-purple-500/30' : 'bg-orange-500/20 text-orange-500 border-orange-500/30'}`}>
-            {admin.role === 'superadmin' ? 'admin' : 'Administrator'}
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border bg-orange-500/20 text-orange-500 border-orange-500/30">
+            Administrator
           </span>
         </div>
       </div>

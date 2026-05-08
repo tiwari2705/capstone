@@ -25,6 +25,6 @@ export const getUserFromToken = () => {
 // Check if current user is admin
 export const isAdmin = (): boolean => {
   const user = getUserFromToken();
-  return user?.role === 'admin' || user?.role === 'superadmin';
+  return user?.role === 'admin';
 };
 

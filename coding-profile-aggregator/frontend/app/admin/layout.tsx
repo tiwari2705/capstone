@@ -23,7 +23,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       try {
         const { data } = await api.get('/auth/me');
         
-        if (data.role !== 'admin' && data.role !== 'superadmin') {
+        if (data.role !== 'admin') {
           toast.error('Admin access required');
           router.push('/dashboard');
           return;

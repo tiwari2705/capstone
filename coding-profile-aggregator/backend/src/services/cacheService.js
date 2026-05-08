@@ -126,16 +126,28 @@ const deleteCached = async (key) => {
 };
 
 const clearPattern = async (pattern) => {
+  const redisClient = await getRedisClient();
+  if (!redisClient) return;
   try {
-    const redisClient = await getRedisClient();
-    if (!redisClient) return;
-
-    const keys = await redisClient.keys(pattern);
-    if (keys.length > 0) {
-      await redisClient.del(keys);
+    // Fix #19 — use SCAN instead of KEYS.
+    // KEYS blocks Redis and scans the entire keyspace.
+    // SCAN is non-blocking and iterates in batches of 100.
+    let cursor = 0;
+    let totalDeleted = 0;
+    do {
+      const reply = await redisClient.scan(cursor, { MATCH: pattern, COUNT: 100 });
+      cursor = reply.cursor;
+      const keys = reply.keys;
+      if (keys.length > 0) {
+        await redisClient.del(keys);
+        totalDeleted += keys.length;
+      }
+    } while (cursor !== 0);
+    if (totalDeleted > 0) {
+      console.log(`[Cache] Cleared ${totalDeleted} keys matching "${pattern}"`);
     }
   } catch (err) {
-    // Silently fail
+    console.error('[Cache] clearPattern error:', err.message);
   }
 };
 

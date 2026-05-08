@@ -1,17 +1,20 @@
 const nodemailer = require('nodemailer');
 
-// Create transporter
+// Gmail SMTP transporter — uses EMAIL_USER + EMAIL_PASSWORD (App Password)
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: 'smtp.gmail.com',
+  port: 465,
+  secure: true, // SSL on port 465
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASSWORD
-  }
+  },
+  connectionTimeout: 10000, // 10 s — fail fast instead of hanging the request
+  greetingTimeout: 10000,
+  socketTimeout: 15000
 });
 
-// Fix #10 — verify SMTP connection at startup so we get clear log output
-// rather than a cryptic SMTP error on the first real OTP send.
-// This runs once when the module is first required.
+// Verify SMTP connection at startup
 transporter.verify((err) => {
   if (err) {
     console.error('[Email] ✗ SMTP connection failed:', err.message);

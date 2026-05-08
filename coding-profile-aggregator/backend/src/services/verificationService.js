@@ -1,21 +1,3 @@
-/**
- * verificationService.js
- * ----------------------
- * Verifies that a user actually owns a coding profile by checking whether
- * a unique verification code exists in their profile bio/about section.
- *
- * Flow:
- *  1. User adds a profile → backend generates a code like "VERIFY_AB12CD"
- *  2. User pastes that code into their platform bio/about
- *  3. User clicks "Verify" → this service fetches their profile and checks
- *     if the code string appears anywhere in the bio text
- *
- * Platform strategies:
- *  - LeetCode     → GraphQL query for profile.aboutMe field
- *  - Codeforces   → REST API user.info, checks firstName + lastName + organization
- *  - GFG          → Scrape the profile page HTML and search for the code string
- */
-
 const axios = require('axios');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');

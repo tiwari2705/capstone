@@ -1,15 +1,10 @@
 const express = require('express');
 const { pool } = require('../config/db');
 const { getCached, setCached } = require('../services/cacheService');
+const { sanitizeError, SCORE_SQL, TOTAL_PROBLEMS_SQL, STATS_JOINS_SQL } = require('../utils/scoreUtils');
 const jwt = require('jsonwebtoken');
 
 const router = express.Router();
-
-// Fix #4 — never expose raw DB errors to the client in production
-const sanitizeError = (err, defaultMsg = 'An internal server error occurred') => {
-  if (process.env.NODE_ENV === 'production') return defaultMsg;
-  return err.message || defaultMsg;
-};
 
 // Optional auth middleware — attaches user if token present, but doesn't block
 const optionalAuth = (req, res, next) => {
@@ -29,9 +24,11 @@ router.get('/', optionalAuth, async (req, res) => {
     const validSorts = ['score', 'total_problems', 'name'];
     const sortCol = validSorts.includes(sort) ? sort : 'score';
     const sortOrder = order === 'asc' ? 'ASC' : 'DESC';
+    const safeLimit = Math.min(Math.max(parseInt(limit) || 50, 1), 500);
+    const safeOffset = Math.max(parseInt(offset) || 0, 0);
 
     // Create cache key
-    const cacheKey = `leaderboard:${sortCol}:${sortOrder}:${course || 'all'}:${section || 'all'}:${limit}:${offset}`;
+    const cacheKey = `leaderboard:${sortCol}:${sortOrder}:${course || 'all'}:${section || 'all'}:${safeLimit}:${safeOffset}`;
     
     // Try cache first
     const cached = await getCached(cacheKey);
@@ -44,8 +41,16 @@ router.get('/', optionalAuth, async (req, res) => {
     if (course) { params.push(course); whereClause += ` AND u.course = $${params.length}`; }
     if (section) { params.push(section); whereClause += ` AND u.section = $${params.length}`; }
 
-    params.push(parseInt(limit), parseInt(offset));
+    // Fix #5 — Get total count FIRST with a separate COUNT query
+    const countQuery = `
+      SELECT COUNT(*) as total FROM users u
+      WHERE u.role = 'user' ${whereClause}
+    `;
+    const countResult = await pool.query(countQuery, params.slice());
 
+    params.push(safeLimit, safeOffset);
+
+    // Fix #6 — Use unified SCORE_SQL that includes ALL 5 platforms
     const query = `
       SELECT
         u.id,
@@ -58,33 +63,40 @@ router.get('/', optionalAuth, async (req, res) => {
         COALESCE(cf.problems_solved, 0) AS codeforces_problems,
         COALESCE(gfg.problems_solved, 0) AS gfg_problems,
         COALESCE(gfg.score, gfg.problems_solved, 0) AS gfg_score,
-        (COALESCE(lc.problems_solved, 0) + COALESCE(cf.problems_solved, 0) + COALESCE(gfg.problems_solved, 0)) AS total_problems,
-        ROUND(
-          COALESCE(lc.problems_solved, 0) * 1.0 +
-          COALESCE(cf.rating, 0) * 0.1 +
-          COALESCE(gfg.problems_solved, 0) * 1.0,
-          2
-        ) AS score,
+        COALESCE(hr.problems_solved, 0) AS hackerrank_problems,
+        COALESCE(cc.problems_solved, 0) AS codechef_problems,
+        COALESCE(cc.rating, 0) AS codechef_rating,
+        ${TOTAL_PROBLEMS_SQL} AS total_problems,
+        ${SCORE_SQL} AS score,
         ARRAY_REMOVE(ARRAY[
           CASE WHEN lcp.verified THEN 'leetcode' END,
           CASE WHEN cfp.verified THEN 'codeforces' END,
-          CASE WHEN gfgp.verified THEN 'geeksforgeeks' END
+          CASE WHEN gfgp.verified THEN 'geeksforgeeks' END,
+          CASE WHEN hrp.verified THEN 'hackerrank' END,
+          CASE WHEN ccp.verified THEN 'codechef' END
         ], NULL) AS linked_platforms
       FROM users u
-      LEFT JOIN stats lc ON lc.user_id = u.id AND lc.platform = 'leetcode'
-      LEFT JOIN stats cf ON cf.user_id = u.id AND cf.platform = 'codeforces'
-      LEFT JOIN stats gfg ON gfg.user_id = u.id AND gfg.platform = 'geeksforgeeks'
+      ${STATS_JOINS_SQL}
       LEFT JOIN coding_profiles lcp ON lcp.user_id = u.id AND lcp.platform = 'leetcode'
       LEFT JOIN coding_profiles cfp ON cfp.user_id = u.id AND cfp.platform = 'codeforces'
       LEFT JOIN coding_profiles gfgp ON gfgp.user_id = u.id AND gfgp.platform = 'geeksforgeeks'
+      LEFT JOIN coding_profiles hrp ON hrp.user_id = u.id AND hrp.platform = 'hackerrank'
+      LEFT JOIN coding_profiles ccp ON ccp.user_id = u.id AND ccp.platform = 'codechef'
       WHERE u.role = 'user' ${whereClause}
       ORDER BY ${sortCol} ${sortOrder}
       LIMIT $${params.length - 1} OFFSET $${params.length}
     `;
 
     const result = await pool.query(query, params);
-    const ranked = result.rows.map((row, idx) => ({ rank: parseInt(offset) + idx + 1, ...row }));
-    const response = { leaderboard: ranked, total: ranked.length };
+    const ranked = result.rows.map((row, idx) => ({ rank: safeOffset + idx + 1, ...row }));
+
+    // Fix #5 — total is now the REAL total count from DB, not just current page size
+    const response = {
+      leaderboard: ranked,
+      total: parseInt(countResult.rows[0].total),
+      limit: safeLimit,
+      offset: safeOffset,
+    };
     
     // Cache for 5 minutes
     await setCached(cacheKey, response, 300);

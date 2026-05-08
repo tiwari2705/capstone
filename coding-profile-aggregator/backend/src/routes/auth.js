@@ -27,13 +27,70 @@ const isStrongPassword = (password) => {
   return /[a-zA-Z]/.test(password) && /[0-9]/.test(password);
 };
 
+// POST /api/auth/send-signup-otp
+// Step 1 of signup: Send OTP to email without creating account
+router.post('/send-signup-otp', async (req, res) => {
+  const { email, registration_no } = req.body;
+
+  if (!email || !registration_no) {
+    return res.status(400).json({ error: 'Email and Registration Number are required' });
+  }
+  if (!isValidEmail(email)) {
+    return res.status(400).json({ error: 'Invalid email format' });
+  }
+  if (registration_no.trim().length < 3 || registration_no.trim().length > 50) {
+    return res.status(400).json({ error: 'Registration number must be 3–50 characters' });
+  }
+
+  try {
+    // Check if email or registration_no already registered
+    const existing = await pool.query('SELECT id FROM users WHERE email = $1 OR registration_no = $2', [email.toLowerCase().trim(), registration_no.toUpperCase().trim()]);
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ error: 'Email or Registration Number already registered' });
+    }
+
+    // Generate OTP
+    const otp = generateOTP();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // Send OTP email
+    try {
+      await sendOTPEmail(email, otp, registration_no, 'signup');
+    } catch (emailErr) {
+      console.error('[Send Signup OTP] Email send failed:', emailErr.message);
+      return res.status(502).json({
+        error: 'Could not send verification email. Please check your email address and try again.',
+      });
+    }
+
+    // Store OTP
+    await pool.query(
+      'INSERT INTO otp_codes (email, registration_no, otp, purpose, expires_at) VALUES ($1, $2, $3, $4, $5)',
+      [email.toLowerCase().trim(), registration_no.toUpperCase().trim(), otp, 'signup', expiresAt]
+    );
+
+    res.status(200).json({
+      message: 'OTP sent to your email. Please enter it to create your account.',
+      email: email.toLowerCase().trim(),
+      expiresIn: 600 // 10 minutes in seconds
+    });
+  } catch (err) {
+    console.error('[Send Signup OTP] Error:', err);
+    res.status(500).json({ error: sanitizeError(err, 'Failed to send OTP. Please try again.') });
+  }
+});
+
 // POST /api/auth/signup
+// Step 2 of signup: Verify OTP and create account
 router.post('/signup', async (req, res) => {
-  const { name, email, password, registration_no, course, section, year_of_passing } = req.body;
+  const { name, email, password, registration_no, course, section, year_of_passing, username: rawUsername, otp } = req.body;
+  
+  // Auto-generate username from registration_no if not provided
+  const username = (rawUsername && rawUsername.trim()) ? rawUsername.trim() : registration_no.trim().toLowerCase();
 
   // Fix #4 & #16 — validate all inputs before touching the database
-  if (!name || !email || !password || !registration_no) {
-    return res.status(400).json({ error: 'Name, email, password, and Registration Number are required' });
+  if (!name || !email || !password || !registration_no || !otp) {
+    return res.status(400).json({ error: 'Name, email, password, registration number, and OTP are required' });
   }
   if (!isValidEmail(email)) {
     return res.status(400).json({ error: 'Invalid email format' });
@@ -52,45 +109,64 @@ router.post('/signup', async (req, res) => {
   }
 
   try {
-    const existing = await pool.query('SELECT id FROM users WHERE email = $1 OR registration_no = $2', [email, registration_no]);
+    // Fix #29 — Verify OTP before creating account
+    const otpResult = await pool.query(
+      'SELECT * FROM otp_codes WHERE email = $1 AND registration_no = $2 AND otp = $3 AND purpose = $4 AND used = FALSE AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1',
+      [email.toLowerCase().trim(), registration_no.toUpperCase().trim(), otp, 'signup']
+    );
+
+    if (otpResult.rows.length === 0) {
+      return res.status(400).json({ error: 'Invalid or expired OTP' });
+    }
+
+    // Mark OTP as used
+    await pool.query('UPDATE otp_codes SET used = TRUE WHERE id = $1', [otpResult.rows[0].id]);
+
+    // Check if email or registration_no already registered
+    const existing = await pool.query('SELECT id FROM users WHERE email = $1 OR registration_no = $2', [email.toLowerCase().trim(), registration_no.toUpperCase().trim()]);
     if (existing.rows.length > 0) {
       return res.status(409).json({ error: 'Email or Registration Number already registered' });
     }
 
-    // Generate OTP
-    const otp = generateOTP();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-    // Fix #10 & #11 — Send email FIRST before any DB writes.
-    // If the email service fails, no ghost user or orphaned OTP is created.
-    try {
-      await sendOTPEmail(email, otp, registration_no, 'verification');
-    } catch (emailErr) {
-      console.error('[Signup] Email send failed:', emailErr.message);
-      return res.status(502).json({
-        error: 'Could not send verification email. Please check your email address and try again.',
-      });
-    }
-
-    // Store OTP (only after email confirmed sent)
-    await pool.query(
-      'INSERT INTO otp_codes (email, registration_no, otp, purpose, expires_at) VALUES ($1, $2, $3, $4, $5)',
-      [email, registration_no, otp, 'verification', expiresAt]
+    // Create user account (with email_verified = TRUE since OTP was verified)
+    const hashedPassword = await bcrypt.hash(password, 12);
+    const userResult = await pool.query(
+      `INSERT INTO users (name, email, registration_no, course, section, password, year_of_passing, username, email_verified)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE)
+       RETURNING id, name, email, registration_no, course, section, role`,
+      [name.trim(), email.toLowerCase().trim(), registration_no.toUpperCase().trim(), course.trim(), section.toUpperCase().trim(), hashedPassword, year_of_passing, username.trim()]
     );
 
-    // Create user account (unverified)
-    const hashed = await bcrypt.hash(password, 12);
-    await pool.query(
-      'INSERT INTO users (name, email, password, registration_no, course, section, year_of_passing, role, email_verified) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
-      [name.trim(), email.toLowerCase().trim(), hashed, registration_no.trim(), course, section, year_of_passing || null, 'user', false]
+    const user = userResult.rows[0];
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { id: user.id, email: user.email, registration_no: user.registration_no, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '1d' }
     );
 
     res.status(201).json({
-      message: 'Account created. Please check your email for OTP verification.',
-      email: email,
-      requiresVerification: true,
+      message: 'Account created successfully!',
+      token,
+      user: { id: user.id, name: user.name, email: user.email, registration_no: user.registration_no, course: user.course, section: user.section, role: user.role }
     });
   } catch (err) {
+    // Fix #15 — catch unique constraint violations from race conditions
+    // This happens when two concurrent signups pass the initial SELECT check
+    if (err.code === '23505') { // PostgreSQL unique_violation
+      const detail = err.detail || '';
+      if (detail.includes('email')) {
+        return res.status(409).json({ error: 'An account with this email already exists.' });
+      }
+      if (detail.includes('registration_no')) {
+        return res.status(409).json({ error: 'An account with this registration number already exists.' });
+      }
+      if (detail.includes('username')) {
+        return res.status(409).json({ error: 'This username is already taken.' });
+      }
+      return res.status(409).json({ error: 'An account with these details already exists.' });
+    }
     console.error('Signup error:', err);
     res.status(500).json({ error: sanitizeError(err, 'Signup failed. Please try again.') });
   }
@@ -111,7 +187,7 @@ router.post('/login', async (req, res) => {
     const user = result.rows[0];
 
     // Check if email is verified
-    if (!user.email_verified && user.role !== 'admin' && user.role !== 'superadmin') {
+    if (!user.email_verified && user.role !== 'admin') {
       return res.status(403).json({
         error: 'Email not verified. Please verify your email first.',
         requiresVerification: true,
@@ -181,11 +257,12 @@ router.post('/verify-email', async (req, res) => {
     }
 
     const user = userResult.rows[0];
-    const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role },
-      process.env.JWT_SECRET,
-      { expiresIn: '1d' } // Reduced from 7d to 1 day
-    );
+      // Fix #16 — include registration_no in verify-email token to match login token payload
+      const token = jwt.sign(
+        { id: user.id, email: user.email, registration_no: user.registration_no, role: user.role },
+        process.env.JWT_SECRET,
+        { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+      );
 
     res.json({ message: 'Email verified successfully', token, user });
   } catch (err) {

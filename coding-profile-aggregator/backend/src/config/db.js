@@ -5,8 +5,8 @@ let isDBReady = false;
 
 const pool = new Pool({ 
   connectionString: process.env.DATABASE_URL,
-  max: 50, // Increased from 20 for 1000 users
-  min: 10, // Keep minimum connections alive
+  max: 20, // Fix #4 — Supabase free tier supports ~20-60 connections; 20 is safe
+  min: 2, // Keep only 2 idle connections to avoid exhausting the Supabase pool
   idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
   connectionTimeoutMillis: 10000, // Return an error after 10 seconds if connection could not be established
   statement_timeout: 30000, // 30 second timeout for queries
@@ -26,7 +26,9 @@ const initDB = async () => {
         registration_no VARCHAR(100) UNIQUE,
         course VARCHAR(100),
         section VARCHAR(50),
+        year_of_passing INTEGER,
         role VARCHAR(20) DEFAULT 'user',
+        email_verified BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT NOW()
       );
 
@@ -40,7 +42,8 @@ const initDB = async () => {
         verification_code VARCHAR(100) NOT NULL,
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW(),
-        UNIQUE(user_id, platform)
+        UNIQUE(user_id, platform),
+        UNIQUE(platform, username)
       );
 
       CREATE TABLE IF NOT EXISTS stats (
@@ -175,13 +178,17 @@ const initDB = async () => {
       CREATE INDEX IF NOT EXISTS idx_daily_submissions_user_date ON daily_submissions(user_id, submission_date);
       CREATE INDEX IF NOT EXISTS idx_daily_submissions_date ON daily_submissions(submission_date);
       CREATE INDEX IF NOT EXISTS idx_contest_history_user_id ON contest_history(user_id);
+      CREATE INDEX IF NOT EXISTS idx_contest_history_user_platform ON contest_history(user_id, platform);
       CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
       CREATE INDEX IF NOT EXISTS idx_users_registration_no ON users(registration_no);
       CREATE INDEX IF NOT EXISTS idx_users_course_section ON users(course, section);
       CREATE INDEX IF NOT EXISTS idx_users_year_course ON users(year_of_passing, course);
       CREATE INDEX IF NOT EXISTS idx_users_active ON users(id) WHERE email_verified = TRUE;
       CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+      CREATE INDEX IF NOT EXISTS idx_otp_codes_lookup ON otp_codes(email, purpose, used, expires_at);
     `);
+
+
     
     console.log('[DB] ✓ All indexes created successfully');
     console.log('Database initialized successfully.');

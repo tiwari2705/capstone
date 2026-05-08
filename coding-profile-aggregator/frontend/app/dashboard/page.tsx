@@ -97,7 +97,8 @@ export default function DashboardPage() {
   };
 
   const handleShare = () => {
-    const identifier = data?.user.email || data?.user.registration_no;
+    // Fix #22 — use username or registration_no instead of email (PII)
+    const identifier = data?.user.username || data?.user.registration_no;
     navigator.clipboard.writeText(`${window.location.origin}/profile/${identifier}`);
     toast.success('Profile link copied!');
   };

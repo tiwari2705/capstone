@@ -3,15 +3,17 @@ const bcrypt = require('bcryptjs');
 const { pool } = require('../config/db');
 const { authenticate } = require('../middleware/auth');
 const { requireAdmin, requireSuperAdmin } = require('../middleware/adminAuth');
+const {
+  sanitizeError,
+  calculateScore,
+  calculateRankings,
+  SCORE_SQL,
+  TOTAL_PROBLEMS_SQL,
+  STATS_JOINS_SQL,
+} = require('../utils/scoreUtils');
 
 const router = express.Router();
 router.use(authenticate, requireAdmin);
-
-// Fix #5 — raw error details only in development
-const sanitizeError = (err, defaultMsg = 'An internal server error occurred') => {
-  if (process.env.NODE_ENV === 'production') return defaultMsg;
-  return err.message || defaultMsg;
-};
 
 // Fix #14 — prevent unbounded queries
 const clampLimit = (val, max = 500, defaultVal = 50) => Math.min(Math.max(parseInt(val) || defaultVal, 1), max);
@@ -162,36 +164,13 @@ router.get('/users/:id', async (req, res) => {
 
     // 4. Calculate cumulative totals
     const totalProblems = statsResult.rows.reduce((sum, s) => sum + (s.problems_solved || 0), 0);
-    const score = statsResult.rows.reduce((sum, s) => {
-      if (s.platform === 'leetcode') sum += (s.problems_solved || 0);
-      if (s.platform === 'codeforces') sum += (s.rating || 0) * 0.1;
-      if (s.platform === 'geeksforgeeks') sum += (s.problems_solved || 0);
-      if (s.platform === 'hackerrank') sum += (s.problems_solved || 0);
-      if (s.platform === 'codechef') sum += (s.rating || 0) * 0.1;
-      return sum;
-    }, 0);
+    // Use shared calculateScore() for consistency with dashboard/leaderboard
+    const score = calculateScore(statsMap);
 
-    // 5. Calculate rankings
+    // 5. Calculate rankings using shared utility
     let rankings = null;
     try {
-      // Reusing standard ranking query logic
-      const overallRankRes = await pool.query(
-        `SELECT COUNT(*) + 1 as rank FROM (
-          SELECT u.id FROM users u 
-          LEFT JOIN stats s ON u.id = s.user_id 
-          WHERE u.role = 'user' GROUP BY u.id 
-          HAVING COALESCE(SUM(s.problems_solved), 0) > $1
-        ) as r`,
-        [totalProblems]
-      );
-      const overallTotalRes = await pool.query("SELECT COUNT(*) as total FROM users WHERE role = 'user'");
-      
-      rankings = {
-        overall: {
-          rank: parseInt(overallRankRes.rows[0].rank),
-          total: parseInt(overallTotalRes.rows[0].total)
-        }
-      };
+      rankings = await calculateRankings(user.id, user.course, user.section, totalProblems);
     } catch (rankErr) {
       console.error('Error calculating rankings for admin view:', rankErr);
     }
@@ -245,6 +224,7 @@ router.get('/section/:section', async (req, res) => {
       WHERE u.section = $1 AND u.role = 'user'
       GROUP BY u.id, u.name, u.email, u.registration_no, u.course, u.section, lc.problems_solved, cf.problems_solved, cf.rating, gfg.problems_solved, hr.problems_solved, cc.problems_solved, cc.rating
       ORDER BY total_problems DESC
+      LIMIT 500
     `;
     
     const result = await pool.query(query, [section]);
@@ -297,6 +277,7 @@ router.get('/course/:course', async (req, res) => {
       WHERE u.course = $1 AND u.role = 'user'
       GROUP BY u.id, u.name, u.email, u.registration_no, u.course, u.section, lc.problems_solved, cf.problems_solved, cf.rating, gfg.problems_solved, hr.problems_solved, cc.problems_solved, cc.rating
       ORDER BY total_problems DESC
+      LIMIT 500
     `;
     
     const result = await pool.query(query, [course]);
@@ -340,7 +321,7 @@ router.get('/leaderboard', async (req, res) => {
     if (course) { params.push(course); whereClause += ` AND u.course = $${params.length}`; }
     if (section) { params.push(section); whereClause += ` AND u.section = $${params.length}`; }
     
-    params.push(parseInt(limit));
+    params.push(safeLimit);
     
     const query = `
       SELECT
@@ -390,9 +371,9 @@ router.get('/leaderboard', async (req, res) => {
 
 
 // Other admin routes (admins, create-admin, sync-stats, etc.)
-router.get('/admins', requireSuperAdmin, async (req, res) => {
+router.get('/admins', requireAdmin, async (req, res) => {
   try {
-    const result = await pool.query("SELECT id, name, username, email, role, created_at FROM users WHERE role IN ('admin', 'superadmin') ORDER BY created_at DESC");
+    const result = await pool.query("SELECT id, name, username, email, role, created_at FROM users WHERE role = 'admin' ORDER BY created_at DESC");
     res.json(result.rows);
   } catch (err) {
     console.error('List admins error:', err);
@@ -401,7 +382,7 @@ router.get('/admins', requireSuperAdmin, async (req, res) => {
 });
 
 
-router.post('/create-admin', requireSuperAdmin, async (req, res) => {
+router.post('/create-admin', requireAdmin, async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ error: 'Username and password are required' });
@@ -540,26 +521,20 @@ router.get('/available-languages', async (req, res) => {
   try {
     console.log('[Available Languages] Request received');
     
+    // Fix #9 — Use JSONB path query to extract language names efficiently
+    // instead of fetching entire extra_data column (which can be 10-50KB per user)
     const result = await pool.query(`
-      SELECT DISTINCT extra_data
+      SELECT DISTINCT jsonb_array_elements(extra_data->'languageData')->>'name' as language_name
       FROM stats
-      WHERE platform = 'leetcode' AND extra_data IS NOT NULL
+      WHERE platform = 'leetcode' AND extra_data IS NOT NULL AND extra_data->'languageData' IS NOT NULL
     `);
     
     console.log(`[Available Languages] Found ${result.rows.length} stats records`);
     
-    const languagesSet = new Set();
-    
-    result.rows.forEach(row => {
-      const languageData = row.extra_data?.languageData || [];
-      languageData.forEach(lang => {
-        if (lang.name) {
-          languagesSet.add(lang.name);
-        }
-      });
-    });
-    
-    const languages = Array.from(languagesSet).sort();
+    const languages = result.rows
+      .map(row => row.language_name)
+      .filter(Boolean)
+      .sort();
     
     console.log(`[Available Languages] Extracted ${languages.length} unique languages:`, languages);
     
@@ -572,77 +547,8 @@ router.get('/available-languages', async (req, res) => {
 });
 
 // ─── Helper: Rankings ────────────────────────────────────────────────────────
-// Fix #9 — moved ABOVE module.exports so it's in scope for the routes below.
-async function calculateRankings(userId, userCourse, userSection, userTotalProblems) {
-  try {
-    const overallRankResult = await pool.query(`
-      SELECT COUNT(*) + 1 as rank
-      FROM (
-        SELECT u.id,
-          (COALESCE(lc.problems_solved, 0) + COALESCE(cf.problems_solved, 0) + COALESCE(gfg.problems_solved, 0) + COALESCE(hr.problems_solved, 0) + COALESCE(cc.problems_solved, 0)) AS total_problems
-        FROM users u
-        LEFT JOIN stats lc ON lc.user_id = u.id AND lc.platform = 'leetcode'
-        LEFT JOIN stats cf ON cf.user_id = u.id AND cf.platform = 'codeforces'
-        LEFT JOIN stats gfg ON gfg.user_id = u.id AND gfg.platform = 'geeksforgeeks'
-        LEFT JOIN stats hr ON hr.user_id = u.id AND hr.platform = 'hackerrank'
-        LEFT JOIN stats cc ON cc.user_id = u.id AND cc.platform = 'codechef'
-        WHERE u.role = 'user'
-      ) as ranked_users
-      WHERE total_problems > $1
-    `, [userTotalProblems]);
-
-    const overallTotalResult = await pool.query(`SELECT COUNT(*) as total FROM users WHERE role = 'user'`);
-
-    const courseRankResult = await pool.query(`
-      SELECT COUNT(*) + 1 as rank
-      FROM (
-        SELECT u.id,
-          (COALESCE(lc.problems_solved, 0) + COALESCE(cf.problems_solved, 0) + COALESCE(gfg.problems_solved, 0) + COALESCE(hr.problems_solved, 0) + COALESCE(cc.problems_solved, 0)) AS total_problems
-        FROM users u
-        LEFT JOIN stats lc ON lc.user_id = u.id AND lc.platform = 'leetcode'
-        LEFT JOIN stats cf ON cf.user_id = u.id AND cf.platform = 'codeforces'
-        LEFT JOIN stats gfg ON gfg.user_id = u.id AND gfg.platform = 'geeksforgeeks'
-        LEFT JOIN stats hr ON hr.user_id = u.id AND hr.platform = 'hackerrank'
-        LEFT JOIN stats cc ON cc.user_id = u.id AND cc.platform = 'codechef'
-        WHERE u.role = 'user' AND u.course = $1
-      ) as ranked_users
-      WHERE total_problems > $2
-    `, [userCourse, userTotalProblems]);
-
-    const courseTotalResult = await pool.query(`SELECT COUNT(*) as total FROM users WHERE role = 'user' AND course = $1`, [userCourse]);
-
-    const sectionRankResult = await pool.query(`
-      SELECT COUNT(*) + 1 as rank
-      FROM (
-        SELECT u.id,
-          (COALESCE(lc.problems_solved, 0) + COALESCE(cf.problems_solved, 0) + COALESCE(gfg.problems_solved, 0) + COALESCE(hr.problems_solved, 0) + COALESCE(cc.problems_solved, 0)) AS total_problems
-        FROM users u
-        LEFT JOIN stats lc ON lc.user_id = u.id AND lc.platform = 'leetcode'
-        LEFT JOIN stats cf ON cf.user_id = u.id AND cf.platform = 'codeforces'
-        LEFT JOIN stats gfg ON gfg.user_id = u.id AND gfg.platform = 'geeksforgeeks'
-        LEFT JOIN stats hr ON hr.user_id = u.id AND hr.platform = 'hackerrank'
-        LEFT JOIN stats cc ON cc.user_id = u.id AND cc.platform = 'codechef'
-        WHERE u.role = 'user' AND u.section = $1
-      ) as ranked_users
-      WHERE total_problems > $2
-    `, [userSection, userTotalProblems]);
-
-    const sectionTotalResult = await pool.query(`SELECT COUNT(*) as total FROM users WHERE role = 'user' AND section = $1`, [userSection]);
-
-    return {
-      overall: { rank: parseInt(overallRankResult.rows[0].rank), total: parseInt(overallTotalResult.rows[0].total) },
-      course:  { rank: parseInt(courseRankResult.rows[0].rank),  total: parseInt(courseTotalResult.rows[0].total),  name: userCourse },
-      section: { rank: parseInt(sectionRankResult.rows[0].rank), total: parseInt(sectionTotalResult.rows[0].total), name: userSection },
-    };
-  } catch (error) {
-    console.error('Error calculating rankings:', error);
-    return {
-      overall: { rank: 0, total: 0 },
-      course:  { rank: 0, total: 0, name: userCourse },
-      section: { rank: 0, total: 0, name: userSection },
-    };
-  }
-}
+// Fix #27 — calculateRankings is now imported from utils/scoreUtils.js
+// (removed ~70 lines of duplicated code)
 
 // PATCH /api/admin/users/:id/details - Update user details (year_of_passing, course, section, etc.)
 router.patch('/users/:id/details', async (req, res) => {
@@ -684,7 +590,7 @@ router.patch('/users/:id/role', async (req, res) => {
   try {
     const { id } = req.params;
     const { role } = req.body;
-    if (!['user', 'admin'].includes(role)) return res.status(400).json({ error: 'Invalid role. Must be "user" or "admin"' });
+    if (!['user', 'admin'].includes(role)) return res.status(400).json({ error: 'Invalid role. Must be "user" or "admin"' }); // superadmin role removed
     const result = await pool.query('UPDATE users SET role = $1 WHERE id = $2 RETURNING id, name, email, role', [role, id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
     res.json({ message: `User role updated to ${role}`, user: result.rows[0] });

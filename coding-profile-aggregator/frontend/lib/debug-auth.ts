@@ -32,7 +32,7 @@ export const isAdmin = (): boolean => {
   
   try {
     const payload = JSON.parse(atob(token.split('.')[1]));
-    return payload.role === 'admin' || payload.role === 'superadmin';
+    return payload.role === 'admin';
   } catch {
     return false;
   }

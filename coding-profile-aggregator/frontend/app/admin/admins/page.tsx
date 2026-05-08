@@ -1,6 +1,5 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 import { User, ShieldAlert } from '@/components/icons';
@@ -13,10 +12,8 @@ interface Admin {
 }
 
 export default function AdminsManagementPage() {
-  const router = useRouter();
   const [admins, setAdmins] = useState<Admin[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
 
   // New admin form state
   const [adding, setAdding] = useState(false);
@@ -24,21 +21,11 @@ export default function AdminsManagementPage() {
   const [newPassword, setNewPassword] = useState('');
 
   useEffect(() => {
-    checkRoleAndFetch();
+    fetchAdmins();
   }, []);
 
-  const checkRoleAndFetch = async () => {
+  const fetchAdmins = async () => {
     try {
-      // First verify role explicitly just in case layout passed it through
-      const { data: user } = await api.get('/auth/me');
-      if (user.role !== 'superadmin') {
-        toast.error('Only superadmins can access this page.');
-        router.push('/admin');
-        return;
-      }
-      setIsSuperAdmin(true);
-
-      // Fetch admins
       const { data: adminsList } = await api.get('/admin/admins');
       setAdmins(adminsList);
     } catch (err: any) {
@@ -60,8 +47,7 @@ export default function AdminsManagementPage() {
       toast.success('Admin created successfully!');
       setNewUsername('');
       setNewPassword('');
-      // Refresh list
-      checkRoleAndFetch();
+      fetchAdmins();
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Failed to create admin');
     } finally {
@@ -76,8 +62,6 @@ export default function AdminsManagementPage() {
       </div>
     );
   }
-
-  if (!isSuperAdmin) return null;
 
   return (
     <div style={{ minHeight: '100vh' }}>
@@ -164,8 +148,8 @@ export default function AdminsManagementPage() {
                   admins.map((adm) => (
                     <div key={adm.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl transition-all border border-white/5 hover:border-accent-purple/30 hover:bg-white/5 bg-surface/20 group">
                       <div className="flex items-center gap-4">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center border ${adm.role === 'superadmin' ? 'bg-grad-brand border-indigo-500/30' : 'bg-surface border-white/10'}`}>
-                          <User size={18} className={adm.role === 'superadmin' ? 'text-white' : 'text-accent-blue'} />
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center border bg-surface border-white/10">
+                          <User size={18} className="text-accent-blue" />
                         </div>
                         <div>
                           <p className="font-bold text-white group-hover:text-accent-purple transition-colors">{adm.username}</p>
@@ -173,8 +157,8 @@ export default function AdminsManagementPage() {
                         </div>
                       </div>
                       <div className="mt-3 sm:mt-0 flex flex-col items-end gap-1">
-                        <span className={`badge ${adm.role === 'superadmin' ? 'badge-info' : 'badge-purple'} scale-90 origin-right`}>
-                          {adm.role === 'superadmin' ? 'admin' : 'Staff Admin'}
+                        <span className="badge badge-purple scale-90 origin-right">
+                          Administrator
                         </span>
                         <p className="text-[10px] text-muted font-medium">Joined {new Date(adm.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</p>
                       </div>

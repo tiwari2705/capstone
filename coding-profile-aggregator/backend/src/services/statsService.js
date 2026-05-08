@@ -475,10 +475,12 @@ const fetchAndStoreStats = async (userId, platform, username) => {
 
   console.log(`[Stats] ✓ ${platform}/@${username}: ${data.problems_solved} problems, score=${data.score}`);
   
-  // Invalidate caches for this user
+  // Fix #18 — only invalidate the user's dashboard cache here.
+  // Leaderboard cache is cleared ONCE after the entire cron batch completes,
+  // not 500 times per run (which previously caused Redis blocking via KEYS/SCAN).
   await deleteCached(`dashboard:${userId}`);
-  await clearPattern('leaderboard:*');
-  console.log(`[Cache] Invalidated dashboard & leaderboard caches for user ${userId}`);
+  // Also clear their public profile cache
+  await deleteCached(`public-profile:${userId}`);
   
   return data;
 };
@@ -517,6 +519,11 @@ const fetchAllVerifiedStats = async () => {
   }
 
   console.log(`[Cron] Done. ${succeeded} succeeded, ${failed} failed.`);
+
+  // Fix #18 — clear leaderboard cache ONCE after the entire batch,
+  // not per-user (which previously called clearPattern 500× per run)
+  await clearPattern('leaderboard:*');
+  console.log('[Cache] Leaderboard cache cleared after cron batch.');
 };
 
 /**

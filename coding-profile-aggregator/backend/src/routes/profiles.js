@@ -46,6 +46,25 @@ router.post('/add-profile', authenticate, async (req, res) => {
   const profile_url = getProfileUrl(platform, trimmedUsername);
   
   try {
+    // Check if this platform+username is already claimed by another verified user
+    const existingClaimResult = await pool.query(
+      'SELECT cp.user_id, u.name, u.registration_no FROM coding_profiles cp JOIN users u ON cp.user_id = u.id WHERE cp.platform = $1 AND cp.username = $2 AND cp.user_id != $3 AND cp.verified = TRUE',
+      [platform.toLowerCase(), trimmedUsername, req.user.id]
+    );
+
+    if (existingClaimResult.rows.length > 0) {
+      const existingUser = existingClaimResult.rows[0];
+      return res.status(409).json({
+        error: 'This account is already linked',
+        conflict: true,
+        linkedTo: {
+          name: existingUser.name,
+          registration_no: existingUser.registration_no
+        },
+        message: `This ${platform} account is already verified and linked to ${existingUser.name} (${existingUser.registration_no}).`
+      });
+    }
+
     const result = await pool.query(
       `INSERT INTO coding_profiles (user_id, platform, username, profile_url, verification_code)
        VALUES ($1, $2, $3, $4, $5)
@@ -75,6 +94,25 @@ router.post('/verify-profile', authenticate, async (req, res) => {
     if (profileResult.rows.length === 0) return res.status(404).json({ error: 'Profile not found' });
     const profile = profileResult.rows[0];
     if (profile.verified) return res.json({ message: 'Profile already verified', profile });
+
+    // Fix #28 — Check if this platform+username is already claimed by another user
+    const existingClaimResult = await pool.query(
+      'SELECT cp.id, cp.user_id, u.name, u.registration_no FROM coding_profiles cp JOIN users u ON cp.user_id = u.id WHERE cp.platform = $1 AND cp.username = $2 AND cp.user_id != $3 AND cp.verified = TRUE',
+      [platform.toLowerCase(), profile.username, req.user.id]
+    );
+    
+    if (existingClaimResult.rows.length > 0) {
+      const existingUser = existingClaimResult.rows[0];
+      return res.status(409).json({
+        error: 'This account is already linked',
+        conflict: true,
+        linkedTo: {
+          name: existingUser.name,
+          registration_no: existingUser.registration_no
+        },
+        message: `This ${platform} account is already verified and linked to ${existingUser.name} (${existingUser.registration_no}).`
+      });
+    }
 
     console.log(`[Verify] Starting verification for ${platform}/@${profile.username}...`);
     const isVerified = await verifyProfile(profile.platform, profile.username, profile.verification_code);
@@ -122,24 +160,37 @@ router.get('/user-profiles', authenticate, async (req, res) => {
   }
 });
 
+// Fix #13 — per-user cooldown to prevent simultaneous refresh abuse
+const refreshCooldowns = new Map();
+const REFRESH_COOLDOWN_MS = 2 * 60 * 1000; // 2 minutes
+
 // POST /api/profiles/refresh-stats
 router.post('/refresh-stats', authenticate, async (req, res) => {
   const { platform } = req.body;
+  const userId = req.user.id;
+
+  // Fix #13 — enforce per-user cooldown
+  const lastRefresh = refreshCooldowns.get(userId);
+  if (lastRefresh && Date.now() - lastRefresh < REFRESH_COOLDOWN_MS) {
+    const remaining = Math.ceil((REFRESH_COOLDOWN_MS - (Date.now() - lastRefresh)) / 1000);
+    return res.status(429).json({
+      error: `Please wait ${remaining} seconds before refreshing again.`,
+      retryAfter: remaining
+    });
+  }
+  refreshCooldowns.set(userId, Date.now());
   
   try {
     const query = platform
       ? 'SELECT * FROM coding_profiles WHERE user_id = $1 AND platform = $2 AND verified = TRUE'
       : 'SELECT * FROM coding_profiles WHERE user_id = $1 AND verified = TRUE';
-    const params = platform ? [req.user.id, platform.toLowerCase()] : [req.user.id];
+    const params = platform ? [userId, platform.toLowerCase()] : [userId];
     const profiles = await pool.query(query, params);
 
-    // Fix #2 — run stats fetches SEQUENTIALLY, not in parallel.
-    // Parallel fetches fire multiple Puppeteer browsers at once for HackerRank/CodeChef,
-    // which exhausts RAM on Render free tier (512MB). Sequential is slower but stable.
     let updated = 0;
     for (const p of profiles.rows) {
       try {
-        await fetchAndStoreStats(req.user.id, p.platform, p.username);
+        await fetchAndStoreStats(userId, p.platform, p.username);
         updated++;
       } catch (statErr) {
         console.error(`[refresh-stats] Failed ${p.platform}/@${p.username}: ${statErr.message}`);
@@ -148,6 +199,7 @@ router.post('/refresh-stats', authenticate, async (req, res) => {
 
     res.json({ message: 'Stats refreshed successfully', updated });
   } catch (err) {
+    refreshCooldowns.delete(userId); // Allow retry on error
     res.status(500).json({ error: sanitizeError(err, 'Failed to refresh stats. Please try again.') });
   }
 });
@@ -166,19 +218,33 @@ router.delete('/delete-profile', authenticate, async (req, res) => {
   const { platform } = req.body;
   if (!platform) return res.status(400).json({ error: 'Platform required' });
 
+  const client = await pool.connect();
   try {
-    const result = await pool.query(
+    await client.query('BEGIN');
+    const platformLower = platform.toLowerCase();
+
+    const result = await client.query(
       'DELETE FROM coding_profiles WHERE user_id = $1 AND platform = $2 RETURNING *',
-      [req.user.id, platform.toLowerCase()]
+      [req.user.id, platformLower]
     );
 
     if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Profile not found' });
     }
 
-    res.json({ message: `${platform} profile deleted successfully` });
+    // Fix #17 — also clean up orphaned stats, daily_submissions, and contest_history
+    await client.query('DELETE FROM stats WHERE user_id = $1 AND platform = $2', [req.user.id, platformLower]);
+    await client.query('DELETE FROM daily_submissions WHERE user_id = $1 AND platform = $2', [req.user.id, platformLower]);
+    await client.query('DELETE FROM contest_history WHERE user_id = $1 AND platform = $2', [req.user.id, platformLower]);
+
+    await client.query('COMMIT');
+    res.json({ message: `${platform} profile and associated data deleted successfully` });
   } catch (err) {
+    await client.query('ROLLBACK');
     res.status(500).json({ error: sanitizeError(err, 'Failed to delete profile. Please try again.') });
+  } finally {
+    client.release();
   }
 });
 
@@ -229,21 +295,24 @@ router.patch('/update-username', authenticate, async (req, res) => {
  * Useful for testing that the fetchers work before adding a real profile.
  * Protected by auth so it can't be abused publicly.
  */
-router.get('/test-fetch', authenticate, async (req, res) => {
-  const { platform, username } = req.query;
-  if (!platform || !username) return res.status(400).json({ error: 'platform and username query params required' });
+// Fix #24 — test-fetch disabled in production to prevent external API abuse
+if (process.env.NODE_ENV !== 'production') {
+  router.get('/test-fetch', authenticate, async (req, res) => {
+    const { platform, username } = req.query;
+    if (!platform || !username) return res.status(400).json({ error: 'platform and username query params required' });
 
-  const { fetchLeetCodeStats, fetchCodeforcesStats, fetchGFGStats } = require('../services/statsService');
-  const fetchers = { leetcode: fetchLeetCodeStats, codeforces: fetchCodeforcesStats, geeksforgeeks: fetchGFGStats };
-  const fetcher = fetchers[platform.toLowerCase()];
-  if (!fetcher) return res.status(400).json({ error: 'Invalid platform' });
+    const { fetchLeetCodeStats, fetchCodeforcesStats, fetchGFGStats } = require('../services/statsService');
+    const fetchers = { leetcode: fetchLeetCodeStats, codeforces: fetchCodeforcesStats, geeksforgeeks: fetchGFGStats };
+    const fetcher = fetchers[platform.toLowerCase()];
+    if (!fetcher) return res.status(400).json({ error: 'Invalid platform' });
 
-  try {
-    const data = await fetcher(username);
-    res.json({ platform, username, data });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+    try {
+      const data = await fetcher(username);
+      res.json({ platform, username, data });
+    } catch (err) {
+      res.status(500).json({ error: sanitizeError(err, 'Fetch failed') });
+    }
+  });
+}
 
 module.exports = router;

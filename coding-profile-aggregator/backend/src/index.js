@@ -18,7 +18,7 @@ const express = require('express');
 const cors = require('cors');
 const compression = require('compression');
 const axios = require('axios'); // Fix #27 — moved from inside setInterval callback
-const { initDB, getIsDBReady } = require('./config/db');
+const { pool, initDB, getIsDBReady } = require('./config/db');
 const { limiter, authLimiter, adminLimiter } = require('./middleware/rateLimiting');
 const authRoutes = require('./routes/auth');
 const profileRoutes = require('./routes/profiles');
@@ -76,11 +76,11 @@ app.use(compression({
   level: 6
 }));
 
-// Rate Limiting
+// Rate Limiting — order matters! More specific routes MUST come before general ones.
 app.use('/api/admin', adminLimiter); // More lenient for admin routes
-app.use('/api/', limiter);
-app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/login', authLimiter);  // Fix #25 — must be BEFORE general limiter
 app.use('/api/auth/signup', authLimiter);
+app.use('/api/', limiter); // General limiter last (catches everything else)
 
 // Readiness middleare (skip for health check)
 app.use((req, res, next) => {
