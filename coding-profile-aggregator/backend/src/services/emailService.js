@@ -22,7 +22,7 @@ const sendOTPEmail = async (email, otp, registrationNo, purpose = 'verification'
     console.log('\n========== OTP EMAIL (DEV MODE) ==========');
     console.log(`To: ${email}`);
     console.log(`Registration No: ${registrationNo}`);
-    console.log(`Purpose: ${purpose === 'verification' ? 'Email Verification' : purpose === 'reset' ? 'Password Reset' : 'Unknown'}`);
+    console.log(`Purpose: ${purpose === 'verification' ? 'Email Verification' : purpose === 'reset' ? 'Password Reset' : purpose === 'delete' ? 'Account Deletion' : 'Unknown'}`);
     console.log(`OTP: ${otp}`);
     console.log(`Expires: 10 minutes from now`);
     console.log('==========================================\n');
@@ -33,6 +33,8 @@ const sendOTPEmail = async (email, otp, registrationNo, purpose = 'verification'
     ? 'CodeQuest - Email Verification OTP' 
     : purpose === 'reset'
     ? 'CodeQuest - Password Reset OTP'
+    : purpose === 'delete'
+    ? 'CodeQuest - Account Deletion OTP'
     : 'CodeQuest - OTP Verification';
   
   const message = purpose === 'verification'
@@ -64,7 +66,8 @@ const sendOTPEmail = async (email, otp, registrationNo, purpose = 'verification'
         </div>
       </div>
     `
-    : `
+    : purpose === 'reset'
+    ? `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb;">
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 10px 10px 0 0; text-align: center;">
           <h1 style="color: white; margin: 0; font-size: 28px;">CodeQuest</h1>
@@ -89,6 +92,49 @@ const sendOTPEmail = async (email, otp, registrationNo, purpose = 'verification'
         </div>
         <div style="text-align: center; padding: 20px; color: #9ca3af; font-size: 12px;">
           <p>© 2024 CodeQuest. All rights reserved.</p>
+        </div>
+      </div>
+    `
+    : purpose === 'delete'
+    ? `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb;">
+        <div style="background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%); padding: 30px; border-radius: 10px 10px 0 0; text-align: center;">
+          <h1 style="color: white; margin: 0; font-size: 28px;">CodeQuest</h1>
+        </div>
+        <div style="background-color: white; padding: 30px; border-radius: 0 0 10px 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+          <h2 style="color: #1f2937; margin-top: 0;">Account Deletion Request</h2>
+          <p style="color: #4b5563; font-size: 16px; line-height: 1.6;">
+            We received a request to permanently delete your CodeQuest account. If you proceed, all your data will be permanently lost.
+          </p>
+          <div style="background-color: #fef2f2; padding: 20px; border-radius: 8px; margin: 25px 0; border: 1px solid #fee2e2;">
+            <p style="margin: 0; color: #6b7280; font-size: 14px;">Registration Number:</p>
+            <p style="margin: 5px 0 15px 0; color: #1f2937; font-size: 18px; font-weight: bold;">${registrationNo}</p>
+            <p style="margin: 0; color: #6b7280; font-size: 14px;">Your Deletion OTP:</p>
+            <p style="margin: 5px 0 0 0; color: #ef4444; font-size: 32px; font-weight: bold; letter-spacing: 8px;">${otp}</p>
+          </div>
+          <p style="color: #ef4444; font-size: 14px; margin: 20px 0; font-weight: bold;">
+            ⚠️ This action is irreversible. The OTP will expire in 10 minutes.
+          </p>
+          <p style="color: #6b7280; font-size: 14px; line-height: 1.6;">
+            If you did not request to delete your account, please ignore this email and your account will remain secure.
+          </p>
+        </div>
+        <div style="text-align: center; padding: 20px; color: #9ca3af; font-size: 12px;">
+          <p>© 2024 CodeQuest. All rights reserved.</p>
+        </div>
+      </div>
+    `
+    : `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb;">
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 10px 10px 0 0; text-align: center;">
+          <h1 style="color: white; margin: 0; font-size: 28px;">CodeQuest</h1>
+        </div>
+        <div style="background-color: white; padding: 30px; border-radius: 0 0 10px 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+          <h2 style="color: #1f2937; margin-top: 0;">OTP Verification</h2>
+          <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 25px 0;">
+            <p style="margin: 0; color: #6b7280; font-size: 14px;">Your OTP:</p>
+            <p style="margin: 5px 0 0 0; color: #667eea; font-size: 32px; font-weight: bold; letter-spacing: 8px;">${otp}</p>
+          </div>
         </div>
       </div>
     `;

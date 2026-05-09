@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Link2, LogOut, Code2, Trophy } from './icons';
+import { LayoutDashboard, Link2, LogOut, Code2, Trophy, User } from './icons';
 import { removeToken } from '@/lib/auth';
 import toast from 'react-hot-toast';
 
@@ -9,6 +9,7 @@ const navItems = [
   { name: 'Dashboard',        href: '/dashboard',          icon: LayoutDashboard },
   { name: 'Manage Platforms', href: '/dashboard/profiles', icon: Link2 },
   { name: 'Leaderboard',      href: '/leaderboard',        icon: Trophy },
+  { name: 'Settings',         href: '/dashboard/settings', icon: User },
 ];
 
 export default function Sidebar() {

@@ -419,4 +419,97 @@ router.post('/reset-password', async (req, res) => {
   }
 });
 
+// PUT /api/auth/me
+router.put('/me', authenticate, async (req, res) => {
+  const { name, course, section } = req.body;
+  if (!name || name.trim().length < 2 || name.trim().length > 100) {
+    return res.status(400).json({ error: 'Name must be between 2 and 100 characters' });
+  }
+
+  try {
+    const result = await pool.query(
+      'UPDATE users SET name = $1, course = $2, section = $3 WHERE id = $4 RETURNING id, name, email, registration_no, course, section, role',
+      [name.trim(), (course || '').trim(), (section || '').toUpperCase().trim(), req.user.id]
+    );
+
+    if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+    
+    res.json({ message: 'Profile updated successfully', user: result.rows[0] });
+  } catch (err) {
+    console.error('Update profile error:', err);
+    res.status(500).json({ error: sanitizeError(err, 'Failed to update profile.') });
+  }
+});
+
+// POST /api/auth/send-delete-otp
+router.post('/send-delete-otp', authenticate, async (req, res) => {
+  try {
+    const userResult = await pool.query('SELECT email, registration_no FROM users WHERE id = $1', [req.user.id]);
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const { email, registration_no } = userResult.rows[0];
+
+    // Generate OTP
+    const otp = generateOTP();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    // Send email
+    try {
+      await sendOTPEmail(email, otp, registration_no, 'delete');
+    } catch (emailErr) {
+      console.error('[Send Delete OTP] Email send failed:', emailErr.message);
+      return res.status(502).json({ error: 'Could not send OTP email. Please try again later.' });
+    }
+
+    // Store OTP
+    await pool.query(
+      'INSERT INTO otp_codes (email, registration_no, otp, purpose, expires_at) VALUES ($1, $2, $3, $4, $5)',
+      [email, registration_no, otp, 'delete', expiresAt]
+    );
+
+    res.json({ message: 'Deletion OTP sent successfully' });
+  } catch (err) {
+    console.error('Send delete OTP error:', err);
+    res.status(500).json({ error: sanitizeError(err, 'Failed to send OTP. Please try again.') });
+  }
+});
+
+// DELETE /api/auth/me
+router.delete('/me', authenticate, async (req, res) => {
+  const { otp } = req.body;
+  if (!otp) return res.status(400).json({ error: 'OTP is required to delete account' });
+
+  try {
+    const userResult = await pool.query('SELECT email FROM users WHERE id = $1', [req.user.id]);
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const { email } = userResult.rows[0];
+
+    // Verify OTP
+    const otpResult = await pool.query(
+      'SELECT * FROM otp_codes WHERE email = $1 AND otp = $2 AND purpose = $3 AND used = FALSE AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1',
+      [email, otp, 'delete']
+    );
+
+    if (otpResult.rows.length === 0) {
+      return res.status(400).json({ error: 'Invalid or expired OTP' });
+    }
+
+    // Mark OTP as used
+    await pool.query('UPDATE otp_codes SET used = TRUE WHERE id = $1', [otpResult.rows[0].id]);
+
+    // Delete User (Cascade deletes associated data)
+    await pool.query('DELETE FROM users WHERE id = $1', [req.user.id]);
+
+    res.json({ message: 'Account deleted successfully' });
+  } catch (err) {
+    console.error('Account deletion error:', err);
+    res.status(500).json({ error: sanitizeError(err, 'Failed to delete account.') });
+  }
+});
+
 module.exports = router;
