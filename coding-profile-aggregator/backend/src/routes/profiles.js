@@ -13,10 +13,6 @@ const sanitizeError = (err, defaultMsg = 'An internal server error occurred') =>
   return err.message || defaultMsg;
 };
 
-/**
- * Generates a verification code with only alphanumeric characters (no underscores or special chars).
- * Format: VERIFY + 6 random uppercase letters/numbers (e.g., VERIFYAB12CD)
- */
 const generateVerificationCode = () => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let code = 'VERIFY';

@@ -249,9 +249,9 @@ export default function DashboardPage() {
         width: '100%'
       }}>
 
-        {/* Rankings Card - Only show if rankings data exists */}
+        {/* Rankings strip - compact inline bar */}
         {data.rankings && (
-          <div style={{ marginBottom: '2.5rem' }}>
+          <div style={{ marginBottom: '1.25rem' }}>
             <RankingCard rankings={data.rankings} />
           </div>
         )}

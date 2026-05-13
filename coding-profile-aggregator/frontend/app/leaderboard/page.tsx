@@ -159,6 +159,44 @@ export default function LeaderboardPage() {
           <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: '0.82rem' }}>{data.length} users</span>
         </div>
 
+        {/* Your Rank Banner - shown when logged in and user found */}
+        {!loading && currentUserId && (() => {
+          const me = data.find(e => e.id === currentUserId);
+          if (!me) return null;
+          return (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '1rem',
+              flexWrap: 'wrap',
+              padding: '0.65rem 1rem',
+              marginBottom: '1rem',
+              background: 'rgba(139,92,246,0.07)',
+              border: '1px solid rgba(139,92,246,0.25)',
+              borderRadius: '8px',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Trophy size={14} style={{ color: '#eab308' }} />
+                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  Your Rank
+                </span>
+              </div>
+              <div style={{ width: 1, height: 20, background: 'rgba(139,92,246,0.3)' }} />
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.3rem' }}>
+                <span style={{ fontSize: '1.1rem', fontWeight: 900, color: 'var(--accent-purple)' }}>#{me.rank}</span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>out of {data.length}</span>
+              </div>
+              <div style={{ width: 1, height: 20, background: 'rgba(139,92,246,0.3)' }} />
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>{me.name}</span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{me.course} · Section {me.section}</span>
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'baseline', gap: '0.3rem' }}>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Score</span>
+                <span style={{ fontSize: '1rem', fontWeight: 800, color: '#fff' }}>{Number(me.score).toFixed(1)}</span>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Table */}
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: '5rem' }}>
